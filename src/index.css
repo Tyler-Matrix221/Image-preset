@@ -1,0 +1,49 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-zinc-950 text-zinc-100 antialiased;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI',
+      Roboto, sans-serif;
+  }
+}
+
+@layer components {
+  .param-range {
+    @apply h-9 appearance-none bg-transparent;
+  }
+
+  .param-range::-webkit-slider-runnable-track {
+    @apply h-[3px] rounded-full bg-zinc-700;
+  }
+
+  .param-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    @apply mt-[-11px] h-[21px] w-[21px] rounded-full border-[3px] border-amber-400 bg-zinc-950 shadow-[0_2px_8px_rgba(0,0,0,0.6)];
+  }
+
+  .param-range::-moz-range-track {
+    @apply h-[3px] rounded-full bg-zinc-700;
+  }
+
+  .param-range::-moz-range-thumb {
+    @apply h-[18px] w-[18px] rounded-full border-[3px] border-amber-400 bg-zinc-950;
+  }
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
