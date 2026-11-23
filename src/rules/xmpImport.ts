@@ -88,6 +88,82 @@ function extractCrsValue(text: string, xmlDoc: Document | null, key: string): st
 }
 
 /**
+ * Trích xuất tên preset:
+ * 1. Thuộc tính crs:Name="Tên"
+ * 2. Cấu trúc lồng <crs:Name><rdf:Alt><rdf:li>Tên</rdf:li></rdf:Alt></crs:Name>
+ * 3. Thẻ đơn <crs:Name>Tên</crs:Name>
+ * 4. Fallback về tên file không có đuôi .xmp
+ */
+function extractPresetName(text: string, xmlDoc: Document | null, fileName: string): string {
+  // 1. Thử qua DOM Document
+  if (xmlDoc) {
+    const nameTags = ['crs\\:Name', 'crs:Name', 'Name', 'name'];
+    for (const tag of nameTags) {
+      try {
+        const el = xmlDoc.querySelector(tag) || xmlDoc.getElementsByTagName(tag)[0];
+        if (el) {
+          const li =
+            el.querySelector('li') ||
+            el.getElementsByTagName('rdf:li')[0] ||
+            el.getElementsByTagName('li')[0];
+          if (li && li.textContent && li.textContent.trim().length > 0) {
+            return li.textContent.trim();
+          }
+          if (el.textContent && el.textContent.trim().length > 0) {
+            return el.textContent.trim();
+          }
+        }
+      } catch {
+        // bỏ qua
+      }
+    }
+
+    const allEls = xmlDoc.getElementsByTagName('*');
+    for (let i = 0; i < allEls.length; i++) {
+      const el = allEls[i];
+      for (let j = 0; j < el.attributes.length; j++) {
+        const attr = el.attributes[j];
+        if (
+          attr.name === 'crs:Name' ||
+          attr.name.toLowerCase() === 'crs:name' ||
+          attr.name === 'Name'
+        ) {
+          if (attr.value && attr.value.trim().length > 0) {
+            return attr.value.trim();
+          }
+        }
+      }
+    }
+  }
+
+  // 2. Regex: crs:Name dạng attribute
+  const reAttr = /(?:crs:)?Name\s*=\s*["']([^"']+)["']/i;
+  const mAttr = text.match(reAttr);
+  if (mAttr && mAttr[1]?.trim()) {
+    return mAttr[1].trim();
+  }
+
+  // 3. Regex: crs:Name lồng rdf:li (chuẩn Lightroom/Camera Raw)
+  const reLi =
+    /<(?:crs:)?Name[^>]*>[\s\S]*?<rdf:li[^>]*>([^<]+)<\/rdf:li>[\s\S]*?<\/(?:crs:)?Name>/i;
+  const mLi = text.match(reLi);
+  if (mLi && mLi[1]?.trim()) {
+    return mLi[1].trim();
+  }
+
+  // 4. Regex: crs:Name dạng thẻ đơn
+  const reSimple = /<(?:crs:)?Name[^>]*>([^<]+)<\/(?:crs:)?Name>/i;
+  const mSimple = text.match(reSimple);
+  if (mSimple && mSimple[1]?.trim()) {
+    return mSimple[1].trim();
+  }
+
+  // 5. Fallback lấy tên file
+  const cleaned = fileName.replace(/\.[^/.]+$/, '').trim();
+  return cleaned.length > 0 ? cleaned : 'Preset đã nhập';
+}
+
+/**
  * Phân tích nội dung file .xmp và chuyển đổi thành Preset hợp lệ của app.
  * BẮT BUỘC: mọi thông số đều đi qua clampParams() trước khi trả về.
  *
@@ -236,14 +312,8 @@ export function parseXmpPreset(xmpContent: string, fileName: string): XmpParseRe
     );
   }
 
-  // 5. Tên preset: lấy từ crs:Name nếu có, không có thì lấy tên file
-  let presetName = extractCrsValue(xmpContent, xmlDoc, 'Name');
-  if (!presetName || presetName.trim().length === 0) {
-    presetName = fileName.replace(/\.[^/.]+$/, '').trim();
-  }
-  if (!presetName) {
-    presetName = 'Preset đã nhập';
-  }
+  // 5. Tên preset
+  const presetName = extractPresetName(xmpContent, xmlDoc, fileName);
 
   // 6. BẮT BUỘC: Mọi giá trị import đều phải đi qua clampParams() trước khi dùng
   const finalParams = clampParams(rawParams);
