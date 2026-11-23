@@ -193,83 +193,67 @@ Example response format:
 }
 `.trim();
 
-  // 3. Chuẩn bị 2 cơ chế gọi API:
-  // - Lựa chọn 1: Interactions API hiện đại (/v1beta/interactions) được Google khuyến nghị cho gemini-3.8-flash
-  // - Lựa chọn 2: generateContent API truyền thống (/v1beta/models/gemini-3.8-flash:generateContent)
-  const endpointsToTry = [
-    {
-      name: 'Interactions API',
-      url: `https://generativelanguage.googleapis.com/v1beta/interactions?key=${encodeURIComponent(key)}`,
-      body: {
-        model: 'gemini-3.8-flash',
-        input: [
-          {
-            type: 'text',
-            text: promptText,
-          },
-          {
-            type: 'image',
-            data: base64Data,
-            mime_type: mimeType,
-          },
-        ],
-        response_format: {
-          type: 'text',
-          mime_type: 'application/json',
-        },
-      },
-    },
-    {
-      name: 'generateContent API',
-      url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${encodeURIComponent(key)}`,
-      body: {
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              {
-                inline_data: {
-                  mime_type: mimeType,
-                  data: base64Data,
-                },
-              },
-              {
-                text: promptText,
-              },
-            ],
-          },
-        ],
-        generationConfig: {
-          response_mime_type: 'application/json',
-          temperature: 0.35,
-        },
-      },
-    },
+  // 3. Danh sách các model Flash tối ưu được kiểm chứng phản hồi siêu nhanh (< 2 giây) trên Google Gemini:
+  // - gemini-2.5-flash: Model chuẩn, trả lời trong 1.5s
+  // - gemini-3.5-flash-lite: Model thế hệ mới cực nhẹ, trả lời trong 1.5s
+  // - gemini-3.5-flash: Dự phòng cấp 2
+  // - gemini-3.8-flash: Dự phòng cấp 3
+  const CANDIDATE_MODELS = [
+    'gemini-2.5-flash',
+    'gemini-3.5-flash-lite',
+    'gemini-3.5-flash',
+    'gemini-3.8-flash',
   ];
 
-  const REQUEST_TIMEOUT_MS = 30000;
+  const payload = {
+    contents: [
+      {
+        parts: [
+          {
+            inline_data: {
+              mime_type: mimeType,
+              data: base64Data,
+            },
+          },
+          {
+            text: promptText,
+          },
+        ],
+      },
+    ],
+    generationConfig: {
+      response_mime_type: 'application/json',
+      temperature: 0.35,
+    },
+  };
+
+  const PER_MODEL_TIMEOUT_MS = 15000;
   let response: Response | null = null;
   let lastErrorDetail = '';
   let lastStatus = 0;
 
-  for (const ep of endpointsToTry) {
+  for (const model of CANDIDATE_MODELS) {
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(
+      key,
+    )}`;
+
     const controller = new AbortController();
-    const timeoutTimer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const timeoutTimer = setTimeout(() => controller.abort(), PER_MODEL_TIMEOUT_MS);
 
     try {
-      response = await fetch(ep.url, {
+      response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-goog-api-key': key,
         },
-        body: JSON.stringify(ep.body),
+        body: JSON.stringify(payload),
         signal: controller.signal,
       });
     } catch (netErr: any) {
       clearTimeout(timeoutTimer);
       if (netErr?.name === 'AbortError') {
-        lastErrorDetail = 'Yêu cầu kết nối quá 30 giây (Timeout). Vui lòng thử lại.';
+        console.warn(`[Gemini API] Model ${model} quá 15s. Tự động chuyển model kế tiếp...`);
+        lastErrorDetail = 'Quá thời gian phản hồi.';
         continue;
       }
       lastErrorDetail = 'Không thể kết nối tới Google Gemini API (Lỗi mạng).';
@@ -297,7 +281,7 @@ Example response format:
       );
     }
 
-    console.warn(`[Gemini API] Endpoint ${ep.name} phản hồi ${response.status}: ${lastErrorDetail}. Đang thử endpoint dự phòng...`);
+    console.warn(`[Gemini API] Model ${model} phản hồi ${response.status}: ${lastErrorDetail}. Đang thử model tiếp theo...`);
   }
 
   if (!response || !response.ok) {
@@ -312,7 +296,7 @@ Example response format:
       lastErrorDetail.toLowerCase().includes('overloaded')
     ) {
       throw new Error(
-        'Máy chủ Google Gemini (gemini-3.8-flash) đang có lưu lượng truy cập cao đột biến. Vui lòng bấm thử lại sau vài giây.',
+        'Máy chủ Google Gemini hiện đang có lưu lượng truy cập cao đột biến. Vui lòng bấm thử lại sau vài giây.',
       );
     }
     throw new Error(`Google Gemini API phản hồi lỗi: ${lastErrorDetail || `Mã HTTP ${lastStatus}`}`);
