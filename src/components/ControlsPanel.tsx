@@ -21,8 +21,8 @@ export default function ControlsPanel({
     <div className="space-y-4 px-4 pb-5">
       <div>
         <div className="flex items-baseline justify-between">
-          <span className="text-[13px] font-medium text-zinc-300">Cường độ</span>
-          <span className="text-[12px] font-mono tabular-nums text-amber-400">
+          <span className="text-[13px] font-semibold text-zinc-700">Cường độ</span>
+          <span className="text-[12px] font-mono font-bold tabular-nums text-amber-600">
             {Math.round(intensity * 100)}%
           </span>
         </div>
@@ -48,10 +48,10 @@ export default function ControlsPanel({
           onPointerUp={() => onHoldOriginal(false)}
           onPointerCancel={() => onHoldOriginal(false)}
           onContextMenu={(e) => e.preventDefault()}
-          className={`flex h-12 flex-1 touch-none select-none items-center justify-center gap-2 rounded-xl border text-[14px] font-medium transition-colors ${
+          className={`flex h-12 flex-1 touch-none select-none items-center justify-center gap-2 rounded-xl border text-[14px] font-medium transition-colors shadow-xs ${
             showOriginal
-              ? 'border-amber-400/60 bg-amber-400/10 text-amber-300'
-              : 'border-white/[0.08] bg-zinc-900/60 text-zinc-300 active:bg-white/[0.06]'
+              ? 'border-amber-500 bg-amber-500/15 font-semibold text-amber-900'
+              : 'border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 active:bg-zinc-100'
           }`}
         >
           <Eye size={17} />
@@ -61,7 +61,7 @@ export default function ControlsPanel({
           type="button"
           onClick={onExport}
           disabled={exporting}
-          className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-amber-400 text-[14px] font-semibold text-zinc-950 transition-transform active:scale-[0.97] disabled:opacity-50"
+          className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-amber-400 text-[14px] font-bold text-zinc-950 transition-all hover:bg-amber-300 active:scale-[0.98] disabled:opacity-50 shadow-xs"
         >
           <Download size={17} />
           {exporting ? 'Đang xuất...' : 'Xuất ảnh'}

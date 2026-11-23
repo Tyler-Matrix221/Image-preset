@@ -31,17 +31,17 @@ export default function AdjustPanel({
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/[0.06] bg-zinc-900/60 backdrop-blur">
+    <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-xs">
       <div
         role="button"
         tabIndex={0}
         onClick={() => setOpen((o) => !o)}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((o) => !o); } }}
         aria-expanded={open}
-        className="flex w-full items-center justify-between px-4 py-3.5 cursor-pointer active:bg-white/[0.03]"
+        className="flex w-full items-center justify-between px-4 py-3.5 cursor-pointer active:bg-zinc-50"
       >
-        <span className="flex items-center gap-2.5 text-[15px] font-medium text-zinc-100">
-          <SlidersHorizontal size={17} className="text-amber-400" />
+        <span className="flex items-center gap-2.5 text-[15px] font-semibold text-zinc-900">
+          <SlidersHorizontal size={17} className="text-amber-500" />
           Tinh chỉnh thủ công
         </span>
         <span className="flex items-center gap-2">
@@ -52,14 +52,14 @@ export default function AdjustPanel({
               onResetAll();
             }}
             disabled={resetDisabled}
-            className="rounded-full border border-white/10 px-3 py-1 text-[12px] text-zinc-300 transition-colors hover:bg-white/10 disabled:pointer-events-none disabled:opacity-30"
+            className="rounded-full border border-zinc-300 bg-zinc-50 px-3 py-1 text-[12px] font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:pointer-events-none disabled:opacity-30"
           >
             Đặt lại tất cả
           </button>
           {open ? (
-            <ChevronUp size={18} className="text-zinc-400" />
+            <ChevronUp size={18} className="text-zinc-500" />
           ) : (
-            <ChevronDown size={18} className="text-zinc-400" />
+            <ChevronDown size={18} className="text-zinc-500" />
           )}
         </span>
       </div>
@@ -70,10 +70,10 @@ export default function AdjustPanel({
         }`}
       >
         <div className="overflow-hidden">
-          <div className="space-y-5 border-t border-white/[0.06] px-4 pb-5 pt-4">
+          <div className="max-h-[45vh] space-y-5 overflow-y-auto overscroll-contain border-t border-zinc-200 bg-zinc-50/50 px-4 pb-5 pt-4">
             {PARAM_GROUPS.filter((g) => g !== 'HSL').map((group) => (
               <div key={group} className="space-y-3">
-                <p className="text-[12px] font-medium uppercase tracking-wide text-zinc-500">
+                <p className="text-[12px] font-semibold uppercase tracking-wide text-zinc-500">
                   {group}
                 </p>
                 {PARAM_SCHEMAS.filter((s) => s.group === group).map((s) => (

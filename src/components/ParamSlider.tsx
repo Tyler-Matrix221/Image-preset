@@ -8,7 +8,6 @@ interface ParamSliderProps {
   step: number;
   swatch?: string;
   onChange: (value: number) => void;
-  /** Nhấp đúp vào slider để reset riêng thông số này. */
   onDoubleClick?: () => void;
 }
 
@@ -48,13 +47,13 @@ export default function ParamSlider({
     <div className="flex items-center gap-3 select-none">
       {swatch && (
         <span
-          className="h-3.5 w-3.5 flex-shrink-0 rounded-full ring-1 ring-white/20"
+          className="h-3.5 w-3.5 flex-shrink-0 rounded-full ring-1 ring-zinc-300 shadow-2xs"
           style={{ backgroundColor: swatch }}
         />
       )}
       <span
         className={`w-[92px] flex-shrink-0 text-[13px] font-medium ${
-          isDefault ? 'text-zinc-400' : 'text-zinc-200'
+          isDefault ? 'text-zinc-500' : 'text-zinc-900 font-semibold'
         }`}
       >
         {label}
@@ -82,7 +81,7 @@ export default function ParamSlider({
             if (e.key === 'Enter') commit();
             if (e.key === 'Escape') setEditing(false);
           }}
-          className="w-[52px] rounded-md border border-amber-400/60 bg-zinc-900 px-1 py-0.5 text-right text-[12px] font-mono tabular-nums text-amber-300 outline-none"
+          className="w-[52px] rounded-md border border-amber-500 bg-white px-1 py-0.5 text-right text-[12px] font-mono tabular-nums text-amber-700 outline-none shadow-xs"
         />
       ) : (
         <button
@@ -93,8 +92,8 @@ export default function ParamSlider({
           }}
           className={`w-[52px] flex-shrink-0 rounded-md px-1 py-0.5 text-right text-[12px] font-mono tabular-nums transition-colors ${
             isDefault
-              ? 'text-zinc-600 hover:bg-white/5 hover:text-zinc-400'
-              : 'text-amber-400 hover:bg-white/5'
+              ? 'text-zinc-400 hover:bg-zinc-200/60 hover:text-zinc-700'
+              : 'text-amber-700 font-semibold hover:bg-amber-50'
           }`}
           aria-label={`Giá trị ${label}`}
         >

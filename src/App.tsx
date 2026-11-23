@@ -162,14 +162,14 @@ export default function App() {
   }, [panel, intensity, splitTone, exporting]);
 
   return (
-    <div className="flex h-[100dvh] flex-col overflow-hidden bg-zinc-950 text-zinc-100">
-      <header className="flex items-center justify-between px-4 pb-2 pt-4">
+    <div className="flex h-[100dvh] flex-col overflow-hidden bg-zinc-100 text-zinc-900">
+      <header className="flex items-center justify-between border-b border-zinc-200/80 bg-white/80 px-4 pb-2 pt-4 backdrop-blur">
         <div>
-          <h1 className="text-[17px] font-semibold tracking-tight">Studio Màu</h1>
+          <h1 className="text-[17px] font-bold tracking-tight text-zinc-900">Studio Màu</h1>
           <p className="text-[12px] text-zinc-500">Chỉnh màu ảnh ngay trên máy của bạn</p>
         </div>
         {ready && (
-          <span className="rounded-full bg-zinc-900 px-2.5 py-1 text-[11px] text-zinc-500">
+          <span className="rounded-full border border-zinc-200 bg-zinc-100 px-2.5 py-1 text-[11px] font-medium text-zinc-600">
             {fullImageRef.current?.naturalWidth}×{fullImageRef.current?.naturalHeight}
           </span>
         )}
@@ -180,7 +180,7 @@ export default function App() {
       ) : (
         <>
           <CanvasStage canvasRef={canvasRef} showOriginal={showOriginal} />
-          <div className="shrink-0 space-y-3 border-t border-white/[0.06] bg-zinc-950/95 pt-3">
+          <div className="shrink-0 space-y-3 border-t border-zinc-200/80 bg-white/95 pt-3 shadow-[0_-4px_24px_rgba(0,0,0,0.04)]">
             <div className="px-4">
               <PresetStrip
                 presets={PRESETS}
@@ -211,7 +211,7 @@ export default function App() {
       )}
 
       {ready && error && (
-        <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-full bg-red-950/90 px-4 py-2 text-[13px] text-red-300 backdrop-blur">
+        <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-full border border-red-300 bg-red-100/90 px-4 py-2 text-[13px] font-medium text-red-700 shadow-lg backdrop-blur">
           {error}
         </div>
       )}
