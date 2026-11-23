@@ -71,7 +71,7 @@ export default function AdjustPanel({
       >
         <div className="overflow-hidden">
           <div className="space-y-5 border-t border-white/[0.06] px-4 pb-5 pt-4">
-            {PARAM_GROUPS.map((group) => (
+            {PARAM_GROUPS.filter((g) => g !== 'HSL').map((group) => (
               <div key={group} className="space-y-3">
                 <p className="text-[12px] font-medium uppercase tracking-wide text-zinc-500">
                   {group}

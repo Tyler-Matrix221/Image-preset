@@ -19,7 +19,7 @@ export interface Preset {
  *  app (kể cả rule bị sửa tay thành giá trị dương) đều bị kẹp về tối đa 0. */
 export const COOL_PRESET_ORANGE_SAT_MAX = 0;
 
-function applyPresetGuards(params: EditParams, presetId: string): EditParams {
+export function applyPresetGuards(params: EditParams, presetId: string): EditParams {
   const clamped = clampParams(params);
   if (presetId === 'cool') {
     clamped.hsl.orange.saturation = Math.min(

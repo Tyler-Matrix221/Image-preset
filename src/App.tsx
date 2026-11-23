@@ -14,12 +14,13 @@ import {
   DEFAULT_PARAMS,
   clampParams,
   computeEffectiveParams,
+  computeEffectiveSplitTone,
   paramsEqual,
   type EditParams,
   type HslChannelKey,
   type SplitTone,
 } from '@/rules/params';
-import { PRESETS } from '@/rules/presets';
+import { PRESETS, applyPresetGuards } from '@/rules/presets';
 
 const PREVIEW_MAX_SIDE = 2048;
 
@@ -49,7 +50,9 @@ export default function App() {
         engine.render(clampParams(DEFAULT_PARAMS), 0, null);
       } else {
         // Thông số hiệu lực = mặc định + (giá trị panel − mặc định) × Cường độ/100
-        engine.render(computeEffectiveParams(p, inten), inten, tone);
+        const effective = computeEffectiveParams(p, inten);
+        const effectiveTone = computeEffectiveSplitTone(tone, inten);
+        engine.render(effective, 1, effectiveTone);
       }
     },
     [],
@@ -104,7 +107,10 @@ export default function App() {
 
   const handlePresetSelect = useCallback(
     (presetParams: EditParams, presetSplitTone: SplitTone | null, presetId: string | null) => {
-      setPanel(clampParams(presetParams));
+      const guarded = presetId
+        ? applyPresetGuards(presetParams, presetId)
+        : clampParams(presetParams);
+      setPanel(guarded);
       setSplitTone(presetSplitTone);
       setActivePresetId(presetId);
     },
@@ -135,7 +141,7 @@ export default function App() {
 
   const handleResetAll = useCallback(() => {
     const base = activePreset
-      ? clampParams(activePreset.params)
+      ? (activePreset.id ? applyPresetGuards(activePreset.params, activePreset.id) : clampParams(activePreset.params))
       : clampParams(DEFAULT_PARAMS);
     setPanel(base);
   }, [activePreset]);
@@ -146,7 +152,8 @@ export default function App() {
     setExporting(true);
     try {
       const effective = computeEffectiveParams(panel, intensity);
-      await exportImage(img, effective, 1, splitTone);
+      const effectiveTone = computeEffectiveSplitTone(splitTone, intensity);
+      await exportImage(img, effective, 1, effectiveTone);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Không xuất được ảnh');
     } finally {
