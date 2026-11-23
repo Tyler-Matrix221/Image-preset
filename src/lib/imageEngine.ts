@@ -62,7 +62,7 @@ vec3 rgb2hsv(vec3 c) {
   vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
   vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
   vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
-  float d = q.x - min(q.w, q.x);
+  float d = q.x - min(q.w, q.y);
   return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + 1e-10)), d / max(q.x, 1e-10), q.x);
 }
 
@@ -135,10 +135,12 @@ void main() {
            + wG * uHslLumB.x + wA * uHslLumB.y + wB * uHslLumB.z
            + wP * uHslLumC.x + wM * uHslLumC.y;
 
-  hsv.x = fract(hsv.x + dH * (30.0 / 360.0));
-  hsv.y = clamp(hsv.y * (1.0 + dS), 0.0, 1.0);
-  c = hsv2rgb(hsv);
-  c = clamp(c * (1.0 + dL * 0.6), 0.0, 1.0);
+  if (abs(dH) > 0.0001 || abs(dS) > 0.0001 || abs(dL) > 0.0001) {
+    hsv.x = fract(hsv.x + dH * (30.0 / 360.0));
+    hsv.y = clamp(hsv.y * (1.0 + dS), 0.0, 1.0);
+    c = hsv2rgb(hsv);
+    c = clamp(c * (1.0 + dL * 0.6), 0.0, 1.0);
+  }
 
   // Split tone vùng tối
   float shadowMask = 1.0 - smoothstep(0.0, 0.65, lumaOf(c));
