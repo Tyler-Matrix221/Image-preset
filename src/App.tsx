@@ -7,6 +7,7 @@ import PresetStrip from '@/components/PresetStrip';
 import UploadZone from '@/components/UploadZone';
 import SettingsModal from '@/components/SettingsModal';
 import AiSuggestionPanel from '@/components/AiSuggestionPanel';
+import ClonePresetModal from '@/components/ClonePresetModal';
 import {
   ImageEngine,
   downscaleCanvas,
@@ -25,7 +26,11 @@ import {
 } from '@/rules/params';
 import { PRESETS, applyPresetGuards, type Preset } from '@/rules/presets';
 import type { CubeLutData } from '@/rules/cubeImport';
-import { getStoredApiKey, requestAiColorSuggestion } from '@/lib/geminiApi';
+import {
+  getStoredApiKey,
+  requestAiColorSuggestion,
+  matchColorsBetweenImages,
+} from '@/lib/geminiApi';
 
 const PREVIEW_MAX_SIDE = 2048;
 
@@ -49,6 +54,7 @@ export default function App() {
 
   // Cài đặt API key & Trạng thái gọi AI
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [cloneModalOpen, setCloneModalOpen] = useState(false);
   const [hasApiKey, setHasApiKey] = useState(() => Boolean(getStoredApiKey()));
   const [isAiLoading, setIsAiLoading] = useState(false);
 
@@ -218,6 +224,69 @@ export default function App() {
     [],
   );
 
+  const handleAiMatchColor = useCallback(
+    async (refImg: HTMLImageElement) => {
+      const img = fullImageRef.current;
+      if (!img) return;
+
+      const key = getStoredApiKey();
+      if (!key) {
+        setError('Vui lòng vào Cài đặt để nhập Gemini API key trước khi sử dụng.');
+        setSettingsOpen(true);
+        return;
+      }
+
+      setIsAiLoading(true);
+      setError(null);
+
+      try {
+        const suggestedParams = await matchColorsBetweenImages({
+          targetImage: img,
+          referenceImage: refImg,
+          apiKey: key,
+        });
+
+        const matchPreset: Preset = {
+          id: `ai-match-${Date.now()}`,
+          name: 'Khớp màu AI',
+          params: suggestedParams,
+        };
+
+        setPresets((prev) => {
+          const existingIdx = prev.findIndex((p) => p.name === 'Khớp màu AI');
+          if (existingIdx >= 0) {
+            const updated = [...prev];
+            updated[existingIdx] = matchPreset;
+            return updated;
+          }
+          return [...prev, matchPreset];
+        });
+
+        setPanel(matchPreset.params);
+        setSplitTone(null);
+        setActivePresetId(matchPreset.id);
+        setIntensity(1);
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'Đã xảy ra lỗi khi so sánh và khớp màu bằng AI.',
+        );
+      } finally {
+        setIsAiLoading(false);
+      }
+    },
+    [],
+  );
+
+  const handlePresetCreatedFromClone = useCallback((newPreset: Preset) => {
+    setPresets((prev) => [...prev, newPreset]);
+    setPanel(newPreset.params);
+    setSplitTone(null);
+    setActivePresetId(newPreset.id);
+    setIntensity(1);
+  }, []);
+
   const handleParamChange = useCallback(
     (key: keyof EditParams, value: number) => {
       setPanel((prev) => clampParams({ ...prev, [key]: value }));
@@ -305,12 +374,14 @@ export default function App() {
                 params={panel}
                 onSelect={handlePresetSelect}
                 onImportPreset={handleImportPreset}
+                onOpenCloneModal={() => setCloneModalOpen(true)}
                 onError={setError}
               />
             </div>
             <div className="px-4">
               <AiSuggestionPanel
                 onGenerate={handleAiGenerate}
+                onMatchColor={handleAiMatchColor}
                 isLoading={isAiLoading}
                 hasApiKey={hasApiKey}
                 onOpenSettings={() => setSettingsOpen(true)}
@@ -344,6 +415,16 @@ export default function App() {
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         onSaved={(hasKey) => setHasApiKey(hasKey)}
+      />
+
+      {/* Modal Hút màu từ ảnh mẫu bằng AI */}
+      <ClonePresetModal
+        isOpen={cloneModalOpen}
+        onClose={() => setCloneModalOpen(false)}
+        onPresetCreated={handlePresetCreatedFromClone}
+        onError={setError}
+        hasApiKey={hasApiKey}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
 
       {ready && error && (

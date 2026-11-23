@@ -134,99 +134,18 @@ function extractOutputText(result: any): string | null {
   return null;
 }
 
-export interface RequestAiSuggestionOptions {
-  image: HTMLImageElement | HTMLCanvasElement;
-  stylePrompt: string;
-  apiKey?: string;
-}
+// Danh sách các model Flash tối ưu được kiểm chứng phản hồi siêu nhanh (< 2 giây) trên Google Gemini:
+const CANDIDATE_MODELS = [
+  'gemini-2.5-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-3.5-flash',
+  'gemini-3.8-flash',
+];
 
 /**
- * Gửi ảnh thu nhỏ và yêu cầu phong cách tới Google Gemini 3.8 Flash API.
- * Hỗ trợ Interactions API hiện đại và tự động fallback sang generateContent.
- * Trả về bộ EditParams đã được lọc whitelist và kẹp an toàn qua clampParams().
+ * Gọi Gemini REST API với cơ chế tự động chuyển model dự phòng khi model gặp sự cố.
  */
-export async function requestAiColorSuggestion({
-  image,
-  stylePrompt,
-  apiKey,
-}: RequestAiSuggestionOptions): Promise<EditParams> {
-  const key = (apiKey || getStoredApiKey()).trim();
-  if (!key) {
-    throw new Error('Vui lòng nhập Google Gemini API key trong Cài đặt trước khi dùng tính năng này.');
-  }
-
-  // 1. Tạo bản sao thu nhỏ 512px JPEG (giảm tải dung lượng ~15 lần)
-  const { base64Data, mimeType } = await createGeminiThumbnail(image, 512);
-
-  // 2. Chuẩn bị prompt với schema tự động
-  const schemaDesc = buildSchemaDescription();
-  const promptText = `
-You are a master photo colorist and cinematic color grading expert.
-Analyze the provided photograph (colors, exposure, skin tones, shadows, mood) and suggest precise color grading adjustment values to fulfill this user style request:
-"${stylePrompt || 'Tự nhiên, trong trẻo, da hồng hào, ánh sáng cân đối'}"
-
-CRITICAL RULES:
-1. ONLY return a raw, single JSON object containing numeric adjustment parameters from the ALLOWED PARAMETERS SCHEMA below.
-2. DO NOT return markdown, code blocks, or explanations. Just pure JSON.
-3. NEVER attempt to change image geometry, aspect ratio, composition, or facial anatomy. You only propose color grading numbers.
-4. Keep values tasteful, artistic, and balanced so the photograph remains natural without artifacting or over-saturation. Protect realistic human skin tones.
-
-${schemaDesc}
-
-Example response format:
-{
-  "exposure": 0.15,
-  "contrast": 10,
-  "highlights": -15,
-  "shadows": 12,
-  "whites": 4,
-  "blacks": -8,
-  "temperature": -150,
-  "tint": 4,
-  "saturation": -4,
-  "vibrance": 8,
-  "hsl": {
-    "orange": { "hue": 0, "saturation": -4, "luminance": 2 },
-    "yellow": { "hue": -2, "saturation": -10, "luminance": 0 },
-    "blue": { "hue": 0, "saturation": 8, "luminance": -2 }
-  }
-}
-`.trim();
-
-  // 3. Danh sách các model Flash tối ưu được kiểm chứng phản hồi siêu nhanh (< 2 giây) trên Google Gemini:
-  // - gemini-2.5-flash: Model chuẩn, trả lời trong 1.5s
-  // - gemini-3.5-flash-lite: Model thế hệ mới cực nhẹ, trả lời trong 1.5s
-  // - gemini-3.5-flash: Dự phòng cấp 2
-  // - gemini-3.8-flash: Dự phòng cấp 3
-  const CANDIDATE_MODELS = [
-    'gemini-2.5-flash',
-    'gemini-3.5-flash-lite',
-    'gemini-3.5-flash',
-    'gemini-3.8-flash',
-  ];
-
-  const payload = {
-    contents: [
-      {
-        parts: [
-          {
-            inline_data: {
-              mime_type: mimeType,
-              data: base64Data,
-            },
-          },
-          {
-            text: promptText,
-          },
-        ],
-      },
-    ],
-    generationConfig: {
-      response_mime_type: 'application/json',
-      temperature: 0.35,
-    },
-  };
-
+async function callGeminiFlash(payload: any, apiKey: string): Promise<string> {
   const PER_MODEL_TIMEOUT_MS = 15000;
   let response: Response | null = null;
   let lastErrorDetail = '';
@@ -234,7 +153,7 @@ Example response format:
 
   for (const model of CANDIDATE_MODELS) {
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(
-      key,
+      apiKey,
     )}`;
 
     const controller = new AbortController();
@@ -309,10 +228,15 @@ Example response format:
     throw new Error('Gemini không trả về kết quả gợi ý nào cho bức ảnh này.');
   }
 
-  // 4. Phân tích cú pháp JSON
+  return rawText;
+}
+
+/**
+ * Phân tích và lọc an toàn chuỗi JSON từ AI qua whitelist và clampParams.
+ */
+function parseAndSanitizeAiParams(rawText: string): { params: EditParams; suggestedName?: string } {
   let parsedJson: any;
   try {
-    // Làm sạch nếu model vô tình bọc trong markdown code fence
     const cleanedText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
     parsedJson = JSON.parse(cleanedText);
   } catch {
@@ -323,7 +247,6 @@ Example response format:
     throw new Error('Kết quả từ AI không hợp lệ.');
   }
 
-  // 5. Lọc whitelist chỉ giữ các trường có trong schema
   const base = clampParams(DEFAULT_PARAMS);
   const sanitizedParams: EditParams = {
     ...base,
@@ -364,6 +287,277 @@ Example response format:
     }
   }
 
-  // 6. BẮT BUỘC kẹp toàn bộ qua clampParams()
-  return clampParams(sanitizedParams);
+  const suggestedName =
+    typeof parsedJson.suggestedName === 'string' && parsedJson.suggestedName.trim()
+      ? parsedJson.suggestedName.trim().slice(0, 30)
+      : undefined;
+
+  return {
+    params: clampParams(sanitizedParams),
+    suggestedName,
+  };
+}
+
+export interface RequestAiSuggestionOptions {
+  image: HTMLImageElement | HTMLCanvasElement;
+  stylePrompt: string;
+  apiKey?: string;
+}
+
+/**
+ * Gửi ảnh thu nhỏ và yêu cầu phong cách tới Google Gemini Flash API.
+ * Trả về bộ EditParams đã được lọc whitelist và kẹp an toàn qua clampParams().
+ */
+export async function requestAiColorSuggestion({
+  image,
+  stylePrompt,
+  apiKey,
+}: RequestAiSuggestionOptions): Promise<EditParams> {
+  const key = (apiKey || getStoredApiKey()).trim();
+  if (!key) {
+    throw new Error('Vui lòng nhập Google Gemini API key trong Cài đặt trước khi dùng tính năng này.');
+  }
+
+  const { base64Data, mimeType } = await createGeminiThumbnail(image, 512);
+  const schemaDesc = buildSchemaDescription();
+  const promptText = `
+You are a master photo colorist and cinematic color grading expert.
+Analyze the provided photograph (colors, exposure, skin tones, shadows, mood) and suggest precise color grading adjustment values to fulfill this user style request:
+"${stylePrompt || 'Tự nhiên, trong trẻo, da hồng hào, ánh sáng cân đối'}"
+
+CRITICAL RULES:
+1. ONLY return a raw, single JSON object containing numeric adjustment parameters from the ALLOWED PARAMETERS SCHEMA below.
+2. DO NOT return markdown, code blocks, or explanations. Just pure JSON.
+3. NEVER attempt to change image geometry, aspect ratio, composition, or facial anatomy. You only propose color grading numbers.
+4. Keep values tasteful, artistic, and balanced so the photograph remains natural without artifacting or over-saturation. Protect realistic human skin tones.
+
+${schemaDesc}
+
+Example response format:
+{
+  "exposure": 0.15,
+  "contrast": 10,
+  "highlights": -15,
+  "shadows": 12,
+  "whites": 4,
+  "blacks": -8,
+  "temperature": -150,
+  "tint": 4,
+  "saturation": -4,
+  "vibrance": 8,
+  "hsl": {
+    "orange": { "hue": 0, "saturation": -4, "luminance": 2 },
+    "yellow": { "hue": -2, "saturation": -10, "luminance": 0 },
+    "blue": { "hue": 0, "saturation": 8, "luminance": -2 }
+  }
+}
+`.trim();
+
+  const payload = {
+    contents: [
+      {
+        parts: [
+          {
+            inline_data: {
+              mime_type: mimeType,
+              data: base64Data,
+            },
+          },
+          {
+            text: promptText,
+          },
+        ],
+      },
+    ],
+    generationConfig: {
+      response_mime_type: 'application/json',
+      temperature: 0.35,
+    },
+  };
+
+  const rawText = await callGeminiFlash(payload, key);
+  const { params } = parseAndSanitizeAiParams(rawText);
+  return params;
+}
+
+export interface ClonePresetOptions {
+  referenceImage: HTMLImageElement | HTMLCanvasElement;
+  customName?: string;
+  apiKey?: string;
+}
+
+/**
+ * Cách 1: Hút màu từ 1 bức ảnh mẫu (Reference Image) tải trên mạng (TikTok/FB/Pinterest)
+ * và tạo ra một Preset mới hoàn chỉnh.
+ */
+export async function clonePresetFromReferenceImage({
+  referenceImage,
+  customName,
+  apiKey,
+}: ClonePresetOptions): Promise<{ params: EditParams; name: string }> {
+  const key = (apiKey || getStoredApiKey()).trim();
+  if (!key) {
+    throw new Error('Vui lòng nhập Google Gemini API key trong Cài đặt trước khi dùng tính năng này.');
+  }
+
+  const { base64Data, mimeType } = await createGeminiThumbnail(referenceImage, 512);
+  const schemaDesc = buildSchemaDescription();
+  const promptText = `
+You are a master cinematic colorist.
+Analyze this reference photograph (color palette, tone curve, lighting mood, highlights, shadows, white balance, and 8 HSL color channels).
+Reverse-engineer the color grading parameters according to the ALLOWED PARAMETERS SCHEMA so that other baseline photos can adopt this exact aesthetic and color mood.
+Also suggest a short, elegant title for this preset in Vietnamese (e.g. "Nắng Hoàng Hôn", "Phim Cổ Điển", "Nàng Thơ Douyin", "Clean Girl Trong Trẻo") in the "suggestedName" field.
+
+CRITICAL RULES:
+1. ONLY return a raw, single JSON object containing numeric adjustment parameters from the ALLOWED PARAMETERS SCHEMA plus "suggestedName".
+2. DO NOT return markdown or explanations. Pure JSON only.
+3. NEVER attempt to change image geometry, resolution, or facial structure. You only propose color adjustment numbers.
+
+${schemaDesc}
+
+Example response format:
+{
+  "suggestedName": "Tông Ấm Hoàng Hôn",
+  "exposure": 0.1,
+  "contrast": 12,
+  "highlights": -10,
+  "shadows": 8,
+  "whites": 5,
+  "blacks": -6,
+  "temperature": 180,
+  "tint": 2,
+  "saturation": 6,
+  "vibrance": 10,
+  "hsl": {
+    "orange": { "hue": 0, "saturation": -2, "luminance": 4 },
+    "blue": { "hue": -4, "saturation": 6, "luminance": -2 }
+  }
+}
+`.trim();
+
+  const payload = {
+    contents: [
+      {
+        parts: [
+          {
+            inline_data: {
+              mime_type: mimeType,
+              data: base64Data,
+            },
+          },
+          {
+            text: promptText,
+          },
+        ],
+      },
+    ],
+    generationConfig: {
+      response_mime_type: 'application/json',
+      temperature: 0.35,
+    },
+  };
+
+  const rawText = await callGeminiFlash(payload, key);
+  const { params, suggestedName } = parseAndSanitizeAiParams(rawText);
+
+  const finalName = customName?.trim() || suggestedName || 'Preset từ ảnh mẫu';
+  return {
+    params,
+    name: finalName,
+  };
+}
+
+export interface MatchColorsOptions {
+  targetImage: HTMLImageElement | HTMLCanvasElement;
+  referenceImage: HTMLImageElement | HTMLCanvasElement;
+  apiKey?: string;
+}
+
+/**
+ * Cách 2: So sánh cặp 2 ảnh (Target Image A + Reference Image B) để tìm bộ thông số bù trừ màu,
+ * giúp Ảnh A đạt được màu sắc và mood tương đồng nhất với Ảnh B.
+ */
+export async function matchColorsBetweenImages({
+  targetImage,
+  referenceImage,
+  apiKey,
+}: MatchColorsOptions): Promise<EditParams> {
+  const key = (apiKey || getStoredApiKey()).trim();
+  if (!key) {
+    throw new Error('Vui lòng nhập Google Gemini API key trong Cài đặt trước khi dùng tính năng này.');
+  }
+
+  const [thumbA, thumbB] = await Promise.all([
+    createGeminiThumbnail(targetImage, 512),
+    createGeminiThumbnail(referenceImage, 512),
+  ]);
+
+  const schemaDesc = buildSchemaDescription();
+  const promptText = `
+You are an expert Hollywood digital colorist performing professional Color Matching.
+Image 1 is the user's TARGET photo (the baseline unedited photo that needs color grading).
+Image 2 is the REFERENCE photo (the style model whose color grade, lighting mood, color contrast, and palette the user wants to transfer onto Image 1).
+
+Compare Image 1 and Image 2:
+1. Analyze the delta in exposure, contrast, white balance (temperature/tint), dynamic range (highlights, shadows, whites, blacks), and 8 HSL color channels.
+2. Determine the exact adjustment parameters from the ALLOWED PARAMETERS SCHEMA to apply onto Image 1 so that Image 1 transforms to closely match the color grading aesthetic, mood, and tones of Image 2.
+3. If human subjects are present in Image 1, protect flattering natural skin tones while adopting the reference color atmosphere.
+
+CRITICAL RULES:
+1. ONLY return a raw, single JSON object containing numeric adjustment parameters from the ALLOWED PARAMETERS SCHEMA.
+2. DO NOT return markdown or explanations. Just pure JSON.
+3. NEVER attempt to change image geometry, composition, or facial anatomy. You only propose color grading numbers.
+
+${schemaDesc}
+
+Example response format:
+{
+  "exposure": 0.15,
+  "contrast": 15,
+  "highlights": -12,
+  "shadows": 10,
+  "whites": 4,
+  "blacks": -5,
+  "temperature": -120,
+  "tint": 6,
+  "saturation": -4,
+  "vibrance": 8,
+  "hsl": {
+    "orange": { "hue": 0, "saturation": -4, "luminance": 2 },
+    "blue": { "hue": 5, "saturation": 10, "luminance": -4 }
+  }
+}
+`.trim();
+
+  const payload = {
+    contents: [
+      {
+        parts: [
+          {
+            inline_data: {
+              mime_type: thumbA.mimeType,
+              data: thumbA.base64Data,
+            },
+          },
+          {
+            inline_data: {
+              mime_type: thumbB.mimeType,
+              data: thumbB.base64Data,
+            },
+          },
+          {
+            text: promptText,
+          },
+        ],
+      },
+    ],
+    generationConfig: {
+      response_mime_type: 'application/json',
+      temperature: 0.35,
+    },
+  };
+
+  const rawText = await callGeminiFlash(payload, key);
+  const { params } = parseAndSanitizeAiParams(rawText);
+  return params;
 }
