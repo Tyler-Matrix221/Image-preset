@@ -100,6 +100,40 @@ ${scalarRules}
 `;
 }
 
+/**
+ * Trích xuất chuỗi JSON từ kết quả trả về của Google Gemini API
+ * (Hỗ trợ cả Interactions API mới và generateContent API truyền thống).
+ */
+function extractOutputText(result: any): string | null {
+  if (!result || typeof result !== 'object') return null;
+
+  // 1. Output dạng text trực tiếp từ Interactions API
+  if (typeof result.output_text === 'string' && result.output_text.trim()) {
+    return result.output_text.trim();
+  }
+
+  // 2. Output từ timeline steps của Interactions API
+  if (Array.isArray(result.steps)) {
+    for (const step of result.steps) {
+      if (Array.isArray(step?.content)) {
+        for (const item of step.content) {
+          if (item?.type === 'text' && typeof item?.text === 'string' && item.text.trim()) {
+            return item.text.trim();
+          }
+        }
+      }
+    }
+  }
+
+  // 3. Output từ generateContent API truyền thống
+  const candidateText = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (typeof candidateText === 'string' && candidateText.trim()) {
+    return candidateText.trim();
+  }
+
+  return null;
+}
+
 export interface RequestAiSuggestionOptions {
   image: HTMLImageElement | HTMLCanvasElement;
   stylePrompt: string;
@@ -107,7 +141,8 @@ export interface RequestAiSuggestionOptions {
 }
 
 /**
- * Gửi ảnh thu nhỏ và yêu cầu phong cách tới Google Gemini 2.5 Flash API.
+ * Gửi ảnh thu nhỏ và yêu cầu phong cách tới Google Gemini 3.8 Flash API.
+ * Hỗ trợ Interactions API hiện đại và tự động fallback sang generateContent.
  * Trả về bộ EditParams đã được lọc whitelist và kẹp an toàn qua clampParams().
  */
 export async function requestAiColorSuggestion({
@@ -120,8 +155,8 @@ export async function requestAiColorSuggestion({
     throw new Error('Vui lòng nhập Google Gemini API key trong Cài đặt trước khi dùng tính năng này.');
   }
 
-  // 1. Tạo bản sao thu nhỏ 1024px JPEG
-  const { base64Data, mimeType } = await createGeminiThumbnail(image, 1024);
+  // 1. Tạo bản sao thu nhỏ 512px JPEG (giảm tải dung lượng ~15 lần)
+  const { base64Data, mimeType } = await createGeminiThumbnail(image, 512);
 
   // 2. Chuẩn bị prompt với schema tự động
   const schemaDesc = buildSchemaDescription();
@@ -158,67 +193,87 @@ Example response format:
 }
 `.trim();
 
-  // 3. Gọi Gemini 3.8 Flash qua REST API kèm cơ chế tự động thử lại (Retry) khi gặp "high demand" / 503
-  const MODEL_NAME = 'gemini-3.8-flash';
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${encodeURIComponent(
-    key,
-  )}`;
-
-  const payload = {
-    contents: [
-      {
-        role: 'user',
-        parts: [
+  // 3. Chuẩn bị 2 cơ chế gọi API:
+  // - Lựa chọn 1: Interactions API hiện đại (/v1beta/interactions) được Google khuyến nghị cho gemini-3.8-flash
+  // - Lựa chọn 2: generateContent API truyền thống (/v1beta/models/gemini-3.8-flash:generateContent)
+  const endpointsToTry = [
+    {
+      name: 'Interactions API',
+      url: `https://generativelanguage.googleapis.com/v1beta/interactions?key=${encodeURIComponent(key)}`,
+      body: {
+        model: 'gemini-3.8-flash',
+        input: [
           {
-            inline_data: {
-              mime_type: mimeType,
-              data: base64Data,
-            },
-          },
-          {
+            type: 'text',
             text: promptText,
           },
+          {
+            type: 'image',
+            data: base64Data,
+            mime_type: mimeType,
+          },
         ],
-      },
-    ],
-    generationConfig: {
-      response_mime_type: 'application/json',
-      temperature: 0.35,
-      // Tắt suy nghĩ ngầm (thinking) để Gemini trả về JSON ngay lập tức trong 1-2s thay vì pending 30s
-      thinkingConfig: {
-        thinkingBudget: 0,
+        response_format: {
+          type: 'text',
+          mime_type: 'application/json',
+        },
       },
     },
-  };
+    {
+      name: 'generateContent API',
+      url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${encodeURIComponent(key)}`,
+      body: {
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                inline_data: {
+                  mime_type: mimeType,
+                  data: base64Data,
+                },
+              },
+              {
+                text: promptText,
+              },
+            ],
+          },
+        ],
+        generationConfig: {
+          response_mime_type: 'application/json',
+          temperature: 0.35,
+        },
+      },
+    },
+  ];
 
-  const MAX_RETRIES = 2;
-  const REQUEST_TIMEOUT_MS = 25000;
+  const REQUEST_TIMEOUT_MS = 30000;
   let response: Response | null = null;
   let lastErrorDetail = '';
   let lastStatus = 0;
 
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+  for (const ep of endpointsToTry) {
     const controller = new AbortController();
     const timeoutTimer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
     try {
-      response = await fetch(endpoint, {
+      response = await fetch(ep.url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'x-goog-api-key': key,
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(ep.body),
         signal: controller.signal,
       });
     } catch (netErr: any) {
+      clearTimeout(timeoutTimer);
       if (netErr?.name === 'AbortError') {
-        throw new Error(
-          'Yêu cầu phản hồi quá lâu (hơn 25 giây). Vui lòng thử lại hoặc kiểm tra kết nối mạng.',
-        );
+        lastErrorDetail = 'Yêu cầu kết nối quá 30 giây (Timeout). Vui lòng thử lại.';
+        continue;
       }
-      throw new Error(
-        'Lỗi kết nối mạng: Không thể kết nối tới Google Gemini API. Vui lòng kiểm tra lại đường truyền Internet.',
-      );
+      lastErrorDetail = 'Không thể kết nối tới Google Gemini API (Lỗi mạng).';
+      continue;
     } finally {
       clearTimeout(timeoutTimer);
     }
@@ -230,36 +285,19 @@ Example response format:
     lastStatus = response.status;
     try {
       const errJson = await response.json();
-      lastErrorDetail = errJson?.error?.message || '';
+      lastErrorDetail = errJson?.error?.message || errJson?.[0]?.error?.message || response.statusText;
     } catch {
       lastErrorDetail = response.statusText;
     }
 
-    // Nếu lỗi là do key sai / quyền truy cập (400, 401, 403), dừng ngay không cần thử lại
+    // Nếu key sai hoặc không có quyền (400, 401, 403), dừng ngay
     if (response.status === 400 || response.status === 401 || response.status === 403) {
       throw new Error(
         `API key không hợp lệ hoặc không có quyền truy cập Gemini.${lastErrorDetail ? ` (${lastErrorDetail})` : ''}`,
       );
     }
 
-    // Nếu là lỗi quá tải (503 / 429) hoặc "high demand", chờ ngắn rồi thử lại
-    const isHighDemand =
-      response.status === 503 ||
-      response.status === 429 ||
-      lastErrorDetail.toLowerCase().includes('demand') ||
-      lastErrorDetail.toLowerCase().includes('overloaded');
-
-    if (isHighDemand && attempt < MAX_RETRIES) {
-      const delayMs = attempt * 1500;
-      console.warn(
-        `[Gemini API] Lần ${attempt}/${MAX_RETRIES}: Model đang tải cao ("high demand"). Tự động thử lại sau ${delayMs}ms...`,
-      );
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
-      continue;
-    }
-
-    // Lỗi khác không thể tự phục hồi
-    break;
+    console.warn(`[Gemini API] Endpoint ${ep.name} phản hồi ${response.status}: ${lastErrorDetail}. Đang thử endpoint dự phòng...`);
   }
 
   if (!response || !response.ok) {
@@ -274,14 +312,14 @@ Example response format:
       lastErrorDetail.toLowerCase().includes('overloaded')
     ) {
       throw new Error(
-        'Máy chủ Google Gemini (gemini-3.8-flash) đang có lưu lượng truy cập cao đột biến. Vui lòng thử lại sau vài giây.',
+        'Máy chủ Google Gemini (gemini-3.8-flash) đang có lưu lượng truy cập cao đột biến. Vui lòng bấm thử lại sau vài giây.',
       );
     }
-    throw new Error(`Google Gemini API phản hồi lỗi (${lastStatus}): ${lastErrorDetail}`);
+    throw new Error(`Google Gemini API phản hồi lỗi: ${lastErrorDetail || `Mã HTTP ${lastStatus}`}`);
   }
 
   const result = await response.json();
-  const rawText = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+  const rawText = extractOutputText(result);
 
   if (!rawText) {
     throw new Error('Gemini không trả về kết quả gợi ý nào cho bức ảnh này.');
