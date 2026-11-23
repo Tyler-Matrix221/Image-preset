@@ -20,7 +20,7 @@ import {
   type HslChannelKey,
   type SplitTone,
 } from '@/rules/params';
-import { PRESETS, applyPresetGuards } from '@/rules/presets';
+import { PRESETS, applyPresetGuards, type Preset } from '@/rules/presets';
 
 const PREVIEW_MAX_SIDE = 2048;
 
@@ -33,6 +33,8 @@ export default function App() {
   const [previewSrc, setPreviewSrc] = useState<HTMLCanvasElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  // Danh sách preset (bao gồm các preset mặc định và preset import qua .xmp)
+  const [presets, setPresets] = useState<Preset[]>(PRESETS);
   // panel giữ giá trị preset gốc (không scale theo Cường độ)
   const [panel, setPanel] = useState<EditParams>(() => clampParams(DEFAULT_PARAMS));
   const [splitTone, setSplitTone] = useState<SplitTone | null>(null);
@@ -40,7 +42,7 @@ export default function App() {
   const [intensity, setIntensity] = useState(1);
   const [showOriginal, setShowOriginal] = useState(false);
 
-  const activePreset = PRESETS.find((p) => p.id === activePresetId);
+  const activePreset = presets.find((p) => p.id === activePresetId);
 
   const render = useCallback(
     (p: EditParams, inten: number, tone: SplitTone | null, original: boolean) => {
@@ -84,6 +86,14 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewSrc]);
 
+  // Tự động ẩn thông báo lỗi sau 4.5 giây
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(null), 4500);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
   const handleFile = useCallback(async (file: File) => {
     setError(null);
     try {
@@ -116,6 +126,14 @@ export default function App() {
     },
     [],
   );
+
+  const handleImportPreset = useCallback((newPreset: Preset) => {
+    setPresets((prev) => [...prev, newPreset]);
+    setPanel(newPreset.params);
+    setSplitTone(newPreset.splitTone ?? null);
+    setActivePresetId(newPreset.id);
+    setError(null);
+  }, []);
 
   const handleParamChange = useCallback(
     (key: keyof EditParams, value: number) => {
@@ -183,10 +201,12 @@ export default function App() {
           <div className="shrink-0 space-y-3 border-t border-zinc-200/80 bg-white/95 pt-3 shadow-[0_-4px_24px_rgba(0,0,0,0.04)]">
             <div className="px-4">
               <PresetStrip
-                presets={PRESETS}
+                presets={presets}
                 activePresetId={activePresetId}
                 params={panel}
                 onSelect={handlePresetSelect}
+                onImportPreset={handleImportPreset}
+                onError={setError}
               />
             </div>
             <AdjustPanel

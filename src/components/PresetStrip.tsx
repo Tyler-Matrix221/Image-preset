@@ -1,12 +1,17 @@
+import { useRef } from 'react';
+import { FolderUp } from 'lucide-react';
 import type { EditParams, SplitTone } from '@/rules/params';
 import { paramsEqual } from '@/rules/params';
 import type { Preset } from '@/rules/presets';
+import { parseXmpPreset } from '@/rules/xmpImport';
 
 interface PresetStripProps {
   presets: Preset[];
   activePresetId: string | null;
   params: EditParams;
   onSelect: (params: EditParams, splitTone: SplitTone | null, presetId: string | null) => void;
+  onImportPreset?: (preset: Preset) => void;
+  onError?: (msg: string) => void;
 }
 
 export default function PresetStrip({
@@ -14,16 +19,72 @@ export default function PresetStrip({
   activePresetId,
   params,
   onSelect,
+  onImportPreset,
+  onError,
 }: PresetStripProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const activePreset = presets.find((p) => p.id === activePresetId);
   const isModified = !paramsEqual(params, activePreset?.params ?? params);
 
+  const handleOpenFileDialog = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        const result = parseXmpPreset(text, file.name);
+        onImportPreset?.(result.preset);
+      } catch (err) {
+        onError?.(err instanceof Error ? err.message : 'Không thể nhập file preset này');
+      } finally {
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+      }
+    };
+    reader.onerror = () => {
+      onError?.('Lỗi khi đọc file preset từ thiết bị');
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    };
+    reader.readAsText(file);
+  };
+
   return (
     <div
-      className="flex gap-2 overflow-x-auto pb-1 no-scrollbar"
+      className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar"
       role="listbox"
-      aria-label="Chọn preset màu"
+      aria-label="Chọn hoặc nhập preset màu"
     >
+      {/* Nút Nhập preset (.xmp) */}
+      <button
+        type="button"
+        onClick={handleOpenFileDialog}
+        className="flex-shrink-0 inline-flex items-center gap-1.5 rounded-xl border border-dashed border-zinc-300 bg-white px-3.5 py-2 text-[13px] font-medium text-zinc-700 shadow-xs transition-all hover:border-amber-500 hover:bg-amber-50/50 hover:text-amber-800 active:scale-[0.97]"
+        title="Nhập preset từ file .xmp của Adobe Camera Raw / Lightroom"
+      >
+        <FolderUp className="h-4 w-4 text-amber-600" />
+        <span>Nhập preset (.xmp)</span>
+      </button>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".xmp,text/xml,application/xml"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+
+      <div className="h-5 w-[1px] flex-shrink-0 bg-zinc-200" aria-hidden="true" />
+
+      {/* Danh sách các presets */}
       {presets.map((preset) => {
         const active = preset.id === activePresetId;
         return (
