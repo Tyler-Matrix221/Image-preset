@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Settings } from 'lucide-react';
 import CanvasStage from '@/components/CanvasStage';
 import ControlsPanel from '@/components/ControlsPanel';
 import AdjustPanel from '@/components/AdjustPanel';
 import PresetStrip from '@/components/PresetStrip';
 import UploadZone from '@/components/UploadZone';
+import SettingsModal from '@/components/SettingsModal';
+import AiSuggestionPanel from '@/components/AiSuggestionPanel';
 import {
   ImageEngine,
   downscaleCanvas,
@@ -22,6 +25,7 @@ import {
 } from '@/rules/params';
 import { PRESETS, applyPresetGuards, type Preset } from '@/rules/presets';
 import type { CubeLutData } from '@/rules/cubeImport';
+import { getStoredApiKey, requestAiColorSuggestion } from '@/lib/geminiApi';
 
 const PREVIEW_MAX_SIDE = 2048;
 
@@ -34,7 +38,7 @@ export default function App() {
   const [previewSrc, setPreviewSrc] = useState<HTMLCanvasElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
-  // Danh sách preset (bao gồm các preset mặc định, preset .xmp và 3D LUT .cube)
+  // Danh sách preset (bao gồm các preset mặc định, preset .xmp, 3D LUT .cube và AI gợi ý)
   const [presets, setPresets] = useState<Preset[]>(PRESETS);
   // panel giữ giá trị preset gốc (không scale theo Cường độ)
   const [panel, setPanel] = useState<EditParams>(() => clampParams(DEFAULT_PARAMS));
@@ -42,6 +46,11 @@ export default function App() {
   const [activePresetId, setActivePresetId] = useState<string | null>('original');
   const [intensity, setIntensity] = useState(1);
   const [showOriginal, setShowOriginal] = useState(false);
+
+  // Cài đặt API key & Trạng thái gọi AI
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [hasApiKey, setHasApiKey] = useState(() => Boolean(getStoredApiKey()));
+  const [isAiLoading, setIsAiLoading] = useState(false);
 
   const activePreset = presets.find((p) => p.id === activePresetId);
   const isLutActive = Boolean(activePreset?.lut);
@@ -153,6 +162,62 @@ export default function App() {
     setError(null);
   }, []);
 
+  const handleAiGenerate = useCallback(
+    async (stylePrompt: string) => {
+      const img = fullImageRef.current;
+      if (!img) return;
+
+      const key = getStoredApiKey();
+      if (!key) {
+        setError('Vui lòng vào Cài đặt để nhập Gemini API key trước khi sử dụng.');
+        setSettingsOpen(true);
+        return;
+      }
+
+      setIsAiLoading(true);
+      setError(null);
+
+      try {
+        const suggestedParams = await requestAiColorSuggestion({
+          image: img,
+          stylePrompt,
+          apiKey: key,
+        });
+
+        const aiPreset: Preset = {
+          id: `ai-${Date.now()}`,
+          name: 'AI gợi ý',
+          params: suggestedParams,
+        };
+
+        setPresets((prev) => {
+          const existingIdx = prev.findIndex((p) => p.name === 'AI gợi ý');
+          if (existingIdx >= 0) {
+            const updated = [...prev];
+            updated[existingIdx] = aiPreset;
+            return updated;
+          }
+          return [...prev, aiPreset];
+        });
+
+        // Áp thông số đề xuất vào panel và kích hoạt preset
+        setPanel(aiPreset.params);
+        setSplitTone(null);
+        setActivePresetId(aiPreset.id);
+        setIntensity(1);
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'Đã xảy ra lỗi khi gọi AI gợi ý màu.',
+        );
+      } finally {
+        setIsAiLoading(false);
+      }
+    },
+    [],
+  );
+
   const handleParamChange = useCallback(
     (key: keyof EditParams, value: number) => {
       setPanel((prev) => clampParams({ ...prev, [key]: value }));
@@ -209,11 +274,22 @@ export default function App() {
           <h1 className="text-[17px] font-bold tracking-tight text-zinc-900">Studio Màu</h1>
           <p className="text-[12px] text-zinc-500">Chỉnh màu ảnh ngay trên máy của bạn</p>
         </div>
-        {ready && (
-          <span className="rounded-full border border-zinc-200 bg-zinc-100 px-2.5 py-1 text-[11px] font-medium text-zinc-600">
-            {fullImageRef.current?.naturalWidth}×{fullImageRef.current?.naturalHeight}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {ready && (
+            <span className="rounded-full border border-zinc-200 bg-zinc-100 px-2.5 py-1 text-[11px] font-medium text-zinc-600">
+              {fullImageRef.current?.naturalWidth}×{fullImageRef.current?.naturalHeight}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            className="flex h-8 w-8 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-600 shadow-2xs hover:bg-zinc-50 hover:text-zinc-900 transition-colors"
+            title="Cài đặt API Key"
+            aria-label="Cài đặt"
+          >
+            <Settings size={16} />
+          </button>
+        </div>
       </header>
 
       {!ready ? (
@@ -230,6 +306,14 @@ export default function App() {
                 onSelect={handlePresetSelect}
                 onImportPreset={handleImportPreset}
                 onError={setError}
+              />
+            </div>
+            <div className="px-4">
+              <AiSuggestionPanel
+                onGenerate={handleAiGenerate}
+                isLoading={isAiLoading}
+                hasApiKey={hasApiKey}
+                onOpenSettings={() => setSettingsOpen(true)}
               />
             </div>
             <AdjustPanel
@@ -254,6 +338,13 @@ export default function App() {
           </div>
         </>
       )}
+
+      {/* Modal Cài đặt */}
+      <SettingsModal
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onSaved={(hasKey) => setHasApiKey(hasKey)}
+      />
 
       {ready && error && (
         <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-full border border-red-300 bg-red-100/90 px-4 py-2 text-[13px] font-medium text-red-700 shadow-lg backdrop-blur">
