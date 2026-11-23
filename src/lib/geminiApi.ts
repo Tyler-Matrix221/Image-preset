@@ -157,8 +157,11 @@ Example response format:
 }
 `.trim();
 
-  // 3. Gọi Gemini qua REST API (ưu tiên gemini-2.5-flash, tự động fallback sang gemini-2.0-flash nếu máy chủ báo 503 high demand)
-  const candidateModels = ['gemini-2.5-flash', 'gemini-2.0-flash'];
+  // 3. Gọi Gemini 3.8 Flash qua REST API kèm cơ chế tự động thử lại (Retry) khi gặp "high demand" / 503
+  const MODEL_NAME = 'gemini-3.8-flash';
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${encodeURIComponent(
+    key,
+  )}`;
 
   const payload = {
     contents: [
@@ -183,15 +186,12 @@ Example response format:
     },
   };
 
+  const MAX_RETRIES = 3;
   let response: Response | null = null;
   let lastErrorDetail = '';
   let lastStatus = 0;
 
-  for (const model of candidateModels) {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(
-      key,
-    )}`;
-
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       response = await fetch(endpoint, {
         method: 'POST',
@@ -218,29 +218,47 @@ Example response format:
       lastErrorDetail = response.statusText;
     }
 
-    // Nếu lỗi là do key sai / quyền truy cập (400, 401, 403), dừng ngay không cần thử model khác
+    // Nếu lỗi là do key sai / quyền truy cập (400, 401, 403), dừng ngay không cần thử lại
     if (response.status === 400 || response.status === 401 || response.status === 403) {
       throw new Error(
         `API key không hợp lệ hoặc không có quyền truy cập Gemini.${lastErrorDetail ? ` (${lastErrorDetail})` : ''}`,
       );
     }
 
-    // Nếu là lỗi quá tải (503 / 429) hoặc model bận, tiếp tục thử model dự phòng tiếp theo
-    if (response.status === 503 || response.status === 429 || lastErrorDetail.toLowerCase().includes('demand')) {
-      console.warn(`[Gemini API] Model ${model} gặp tình trạng quá tải hoặc hạn mức (${response.status}). Đang thử model dự phòng...`);
+    // Nếu là lỗi quá tải (503 / 429) hoặc "high demand", chờ ngắn rồi thử lại
+    const isHighDemand =
+      response.status === 503 ||
+      response.status === 429 ||
+      lastErrorDetail.toLowerCase().includes('demand') ||
+      lastErrorDetail.toLowerCase().includes('overloaded');
+
+    if (isHighDemand && attempt < MAX_RETRIES) {
+      const delayMs = attempt * 1500;
+      console.warn(
+        `[Gemini API] Lần ${attempt}/${MAX_RETRIES}: Model đang tải cao ("high demand"). Tự động thử lại sau ${delayMs}ms...`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
       continue;
     }
 
-    // Lỗi khác
+    // Lỗi khác không thể tự phục hồi
     break;
   }
 
   if (!response || !response.ok) {
     if (lastStatus === 429) {
-      throw new Error('Đã vượt quá hạn mức gọi Google Gemini API (Rate limit / Quota exceeded). Vui lòng thử lại sau ít phút.');
+      throw new Error(
+        'Đã vượt quá hạn mức gọi Google Gemini API (Rate limit / Quota exceeded). Vui lòng thử lại sau ít phút.',
+      );
     }
-    if (lastStatus === 503 || lastErrorDetail.toLowerCase().includes('demand')) {
-      throw new Error('Máy chủ Google Gemini hiện đang quá tải lượt truy cập toàn cầu. Vui lòng thử lại sau vài giây.');
+    if (
+      lastStatus === 503 ||
+      lastErrorDetail.toLowerCase().includes('demand') ||
+      lastErrorDetail.toLowerCase().includes('overloaded')
+    ) {
+      throw new Error(
+        'Máy chủ Google Gemini (gemini-3.8-flash) đang có lưu lượng truy cập cao đột biến. Vui lòng thử lại sau vài giây.',
+      );
     }
     throw new Error(`Google Gemini API phản hồi lỗi (${lastStatus}): ${lastErrorDetail}`);
   }

@@ -61,7 +61,7 @@ export default function AiSuggestionPanel({
           <Sparkles size={17} className="text-amber-500" />
           <span>AI gợi ý chỉnh màu</span>
           <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-900 border border-amber-500/20">
-            Gemini 2.5 Flash
+            Gemini 3.8 Flash
           </span>
         </span>
         <span className="text-[12px] font-medium text-zinc-500 hover:text-amber-700">
