@@ -32,11 +32,13 @@ export default function AdjustPanel({
 
   return (
     <div className="overflow-hidden rounded-2xl border border-white/[0.06] bg-zinc-900/60 backdrop-blur">
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setOpen((o) => !o)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((o) => !o); } }}
         aria-expanded={open}
-        className="flex w-full items-center justify-between px-4 py-3.5 active:bg-white/[0.03]"
+        className="flex w-full items-center justify-between px-4 py-3.5 cursor-pointer active:bg-white/[0.03]"
       >
         <span className="flex items-center gap-2.5 text-[15px] font-medium text-zinc-100">
           <SlidersHorizontal size={17} className="text-amber-400" />
@@ -60,7 +62,7 @@ export default function AdjustPanel({
             <ChevronDown size={18} className="text-zinc-400" />
           )}
         </span>
-      </button>
+      </div>
 
       <div
         className={`grid transition-[grid-template-rows] duration-300 ease-out ${

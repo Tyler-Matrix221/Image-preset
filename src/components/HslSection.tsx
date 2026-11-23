@@ -36,11 +36,13 @@ export default function HslSection({
             key={ch.key}
             className="overflow-hidden rounded-xl border border-white/[0.06] bg-zinc-900/40"
           >
-            <button
-              type="button"
+            <div
+              role="button"
+              tabIndex={0}
               onClick={() => setOpenKey(open ? null : ch.key)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpenKey(open ? null : ch.key); } }}
               aria-expanded={open}
-              className="flex w-full items-center gap-3 px-3 py-2.5 active:bg-white/[0.03]"
+              className="flex w-full items-center gap-3 px-3 py-2.5 cursor-pointer active:bg-white/[0.03]"
             >
               <span
                 className="h-3.5 w-3.5 flex-shrink-0 rounded-full ring-1 ring-white/20"
@@ -65,7 +67,7 @@ export default function HslSection({
                 size={16}
                 className={`flex-shrink-0 text-zinc-500 transition-transform ${open ? 'rotate-180' : ''}`}
               />
-            </button>
+            </div>
             {open && (
               <div className="space-y-3 border-t border-white/[0.06] px-3 pb-3 pt-3">
                 {HSL_FIELD_SCHEMAS.map((f) => (

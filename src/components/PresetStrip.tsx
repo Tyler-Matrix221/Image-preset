@@ -1,4 +1,4 @@
-import type { EditParams } from '@/rules/params';
+import type { EditParams, SplitTone } from '@/rules/params';
 import { paramsEqual } from '@/rules/params';
 import type { Preset } from '@/rules/presets';
 
@@ -6,7 +6,7 @@ interface PresetStripProps {
   presets: Preset[];
   activePresetId: string | null;
   params: EditParams;
-  onSelect: (params: EditParams, splitTone: Preset['splitTone'], presetId: string | null) => void;
+  onSelect: (params: EditParams, splitTone: SplitTone | null, presetId: string | null) => void;
 }
 
 export default function PresetStrip({

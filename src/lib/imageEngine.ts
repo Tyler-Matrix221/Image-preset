@@ -80,7 +80,7 @@ void main() {
   c *= pow(2.0, uExposure);
 
   // White balance kiểu camera (Bayer derivation)
-  vec3 b = BAYER * vec3(0.5, uTemperature * 0.5, uTint * 0.5);
+  vec3 b = BAYER * vec3(0.0, uTemperature * 0.5, uTint * 0.5);
   c = max(c + c * b, 0.0);
 
   // Tone: chia vùng tối / trung gian / sáng
