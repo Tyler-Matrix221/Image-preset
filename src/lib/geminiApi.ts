@@ -41,12 +41,13 @@ export function clearStoredApiKey(): void {
 }
 
 /**
- * Tạo bản sao thu nhỏ của ảnh (cạnh dài tối đa 1024px) để gửi tới Google Gemini API.
+ * Tạo bản sao thu nhỏ của ảnh (cạnh dài tối đa 512px, JPEG quality 0.75) để gửi tới Google Gemini API.
+ * Giảm tải dung lượng mạng ~10 lần (từ 500KB xuống ~40KB), giúp upload nhanh tức thì.
  * TUYỆT ĐỐI không gửi ảnh gốc.
  */
 export async function createGeminiThumbnail(
   source: HTMLImageElement | HTMLCanvasElement,
-  maxSide = 1024,
+  maxSide = 512,
 ): Promise<{ base64Data: string; mimeType: string }> {
   const width = 'naturalWidth' in source ? source.naturalWidth : source.width;
   const height = 'naturalHeight' in source ? source.naturalHeight : source.height;
@@ -65,7 +66,7 @@ export async function createGeminiThumbnail(
 
   ctx.drawImage(source, 0, 0, targetW, targetH);
 
-  const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
   const base64Data = dataUrl.replace(/^data:image\/jpeg;base64,/, '');
 
   return {
@@ -183,15 +184,23 @@ Example response format:
     generationConfig: {
       response_mime_type: 'application/json',
       temperature: 0.35,
+      // Tắt suy nghĩ ngầm (thinking) để Gemini trả về JSON ngay lập tức trong 1-2s thay vì pending 30s
+      thinkingConfig: {
+        thinkingBudget: 0,
+      },
     },
   };
 
-  const MAX_RETRIES = 3;
+  const MAX_RETRIES = 2;
+  const REQUEST_TIMEOUT_MS = 25000;
   let response: Response | null = null;
   let lastErrorDetail = '';
   let lastStatus = 0;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    const controller = new AbortController();
+    const timeoutTimer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
     try {
       response = await fetch(endpoint, {
         method: 'POST',
@@ -199,11 +208,19 @@ Example response format:
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
+        signal: controller.signal,
       });
-    } catch (netErr) {
+    } catch (netErr: any) {
+      if (netErr?.name === 'AbortError') {
+        throw new Error(
+          'Yêu cầu phản hồi quá lâu (hơn 25 giây). Vui lòng thử lại hoặc kiểm tra kết nối mạng.',
+        );
+      }
       throw new Error(
         'Lỗi kết nối mạng: Không thể kết nối tới Google Gemini API. Vui lòng kiểm tra lại đường truyền Internet.',
       );
+    } finally {
+      clearTimeout(timeoutTimer);
     }
 
     if (response.ok) {
