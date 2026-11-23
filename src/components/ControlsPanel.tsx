@@ -7,6 +7,7 @@ interface ControlsPanelProps {
   onHoldOriginal: (pressed: boolean) => void;
   exporting: boolean;
   showOriginal: boolean;
+  intensityDisabled?: boolean;
 }
 
 export default function ControlsPanel({
@@ -16,14 +17,22 @@ export default function ControlsPanel({
   onHoldOriginal,
   exporting,
   showOriginal,
+  intensityDisabled = false,
 }: ControlsPanelProps) {
   return (
     <div className="space-y-4 px-4 pb-5">
-      <div>
+      <div className={intensityDisabled ? 'opacity-40 transition-opacity' : 'transition-opacity'}>
         <div className="flex items-baseline justify-between">
-          <span className="text-[13px] font-semibold text-zinc-700">Cường độ</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[13px] font-semibold text-zinc-700">Cường độ</span>
+            {intensityDisabled && (
+              <span className="text-[11px] font-medium text-zinc-400 italic">
+                (chế độ Gốc)
+              </span>
+            )}
+          </div>
           <span className="text-[12px] font-mono font-bold tabular-nums text-amber-600">
-            {Math.round(intensity * 100)}%
+            {intensityDisabled ? '—' : `${Math.round(intensity * 100)}%`}
           </span>
         </div>
         <input
@@ -31,10 +40,16 @@ export default function ControlsPanel({
           min={0}
           max={100}
           step={1}
-          value={Math.round(intensity * 100)}
+          disabled={intensityDisabled}
+          value={intensityDisabled ? 100 : Math.round(intensity * 100)}
           onChange={(e) => onIntensityChange(parseInt(e.target.value, 10) / 100)}
-          className="param-range mt-1.5 w-full"
+          className="param-range mt-1.5 w-full disabled:cursor-not-allowed"
           aria-label="Cường độ"
+          title={
+            intensityDisabled
+              ? 'Chế độ gốc nguyên bản không cần áp dụng cường độ'
+              : 'Điều chỉnh cường độ preset'
+          }
         />
       </div>
 

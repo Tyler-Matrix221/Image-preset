@@ -43,6 +43,9 @@ export default function App() {
   const [showOriginal, setShowOriginal] = useState(false);
 
   const activePreset = presets.find((p) => p.id === activePresetId);
+  const isIntensityDisabled =
+    paramsEqual(panel, DEFAULT_PARAMS) &&
+    (!splitTone?.shadow || splitTone.shadow.saturation === 0);
 
   const render = useCallback(
     (p: EditParams, inten: number, tone: SplitTone | null, original: boolean) => {
@@ -225,6 +228,7 @@ export default function App() {
               onHoldOriginal={setShowOriginal}
               exporting={exporting}
               showOriginal={showOriginal}
+              intensityDisabled={isIntensityDisabled}
             />
           </div>
         </>
