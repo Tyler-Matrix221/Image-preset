@@ -5,6 +5,7 @@ import {
   type HslChannelKey,
   type SplitTone,
 } from './params';
+import type { CubeLutData } from './cubeImport';
 
 export interface Preset {
   id: string;
@@ -12,6 +13,8 @@ export interface Preset {
   params: EditParams;
   /** Split tone đi kèm preset (hiện chỉ dùng cho vùng tối của Tông lạnh). */
   splitTone?: SplitTone;
+  /** Dữ liệu 3D LUT nếu preset là file .cube */
+  lut?: CubeLutData;
 }
 
 /** Guard cứng của preset Tông lạnh: bão hòa kênh Cam KHÔNG BAO GIỜ được dương

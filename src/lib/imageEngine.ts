@@ -1,5 +1,6 @@
 import type { EditParams, SplitTone } from '@/rules/params';
 import { HSL_CHANNELS, clampParams } from '@/rules/params';
+import type { CubeLutData } from '@/rules/cubeImport';
 
 const VERTEX_SHADER = `
 attribute vec2 aPosition;
@@ -41,6 +42,11 @@ uniform float uIntensity;   // 0..1 mix with original
 uniform vec3 uShadowTint;   // split tone màu vùng tối
 uniform float uShadowAmt;   // 0..1
 
+// 3D LUT (định dạng atlas 2D kích thước [size*size, size])
+uniform sampler2D uLut;
+uniform float uLutSize;     // ví dụ 17, 32, 33, 64
+uniform float uLutEnabled;  // 1.0 nếu đang áp LUT, 0.0 nếu dùng thông số
+
 const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
 const mat3 BAYER = mat3(
   1.0,  1.0,  1.0,
@@ -72,8 +78,42 @@ vec3 hsv2rgb(vec3 c) {
   return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
 }
 
+/**
+ * Nội suy trilinear lấy mẫu màu từ 3D LUT (được trải thành 2D atlas):
+ * - Chiều R & G được nội suy bilinear trực tiếp qua phần cứng GPU (gl.LINEAR)
+ * - Chiều B được nội suy tuyến tính giữa 2 lát cắt liền kề b0 và b1
+ */
+vec3 sampleLutTrilinear(sampler2D lut, vec3 color, float size) {
+  vec3 c = clamp(color, 0.0, 1.0);
+  float blue = c.b * (size - 1.0);
+  float b0 = floor(blue);
+  float b1 = min(b0 + 1.0, size - 1.0);
+  float f = blue - b0;
+
+  float atlasWidth = size * size;
+  float uOffset = c.r * (size - 1.0);
+  float v = (c.g * (size - 1.0) + 0.5) / size;
+
+  vec2 uv0 = vec2((b0 * size + uOffset + 0.5) / atlasWidth, v);
+  vec2 uv1 = vec2((b1 * size + uOffset + 0.5) / atlasWidth, v);
+
+  vec3 col0 = texture2D(lut, uv0).rgb;
+  vec3 col1 = texture2D(lut, uv1).rgb;
+
+  return mix(col0, col1, f);
+}
+
 void main() {
   vec3 original = texture2D(uImage, vUv).rgb;
+
+  // Nếu preset là 3D LUT (.cube)
+  if (uLutEnabled > 0.5) {
+    vec3 lutColor = sampleLutTrilinear(uLut, original, uLutSize);
+    gl_FragColor = vec4(mix(original, lutColor, uIntensity), 1.0);
+    return;
+  }
+
+  // Chế độ chỉnh theo bộ thông số EditParams
   vec3 c = original;
 
   // Exposure theo stop, neo quanh xám trung bình
@@ -169,6 +209,7 @@ const UNIFORM_NAMES = [
   'uVibrance', 'uHslHueA', 'uHslSatA', 'uHslLumA', 'uHslHueB', 'uHslSatB',
   'uHslLumB', 'uHslHueC', 'uHslSatC', 'uHslLumC', 'uIntensity',
   'uShadowTint', 'uShadowAmt',
+  'uLut', 'uLutSize', 'uLutEnabled',
 ];
 
 function hsvToRgb(h: number, s: number, v: number): [number, number, number] {
@@ -190,6 +231,8 @@ export class ImageEngine {
   private gl: WebGLRenderingContext;
   private program: WebGLProgram;
   private texture: WebGLTexture;
+  private lutTexture: WebGLTexture;
+  private currentLut: CubeLutData | null = null;
   private uniforms: Record<string, WebGLUniformLocation | null> = {};
 
   constructor(canvas: HTMLCanvasElement, source: TexImageSource) {
@@ -223,8 +266,10 @@ export class ImageEngine {
     gl.enableVertexAttribArray(aPosition);
     gl.vertexAttribPointer(aPosition, 2, gl.FLOAT, false, 0, 0);
 
+    // Texture 0: Ảnh đầu vào
     const texture = gl.createTexture();
-    if (!texture) throw new Error('Không tạo được texture');
+    if (!texture) throw new Error('Không tạo được texture ảnh');
+    gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, texture);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -233,38 +278,101 @@ export class ImageEngine {
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
 
+    // Texture 1: 3D LUT Atlas
+    const lutTexture = gl.createTexture();
+    if (!lutTexture) throw new Error('Không tạo được texture LUT');
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, lutTexture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
+
     for (const name of UNIFORM_NAMES) {
       this.uniforms[name] = gl.getUniformLocation(program, name);
     }
+    gl.uniform1i(this.uniforms.uImage!, 0);
+    gl.uniform1i(this.uniforms.uLut!, 1);
+    gl.uniform1f(this.uniforms.uLutEnabled!, 0.0);
+    gl.uniform1f(this.uniforms.uLutSize!, 0.0);
 
     this.gl = gl;
     this.program = program;
     this.texture = texture;
+    this.lutTexture = lutTexture;
   }
 
-  render(params: EditParams, intensity: number, splitTone: SplitTone | null) {
-    const p = clampParams(params);
+  render(
+    params: EditParams,
+    intensity: number,
+    splitTone: SplitTone | null,
+    lut?: CubeLutData | null,
+  ) {
     const gl = this.gl;
     const canvas = gl.canvas as HTMLCanvasElement;
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.useProgram(this.program);
+
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
     gl.uniform1i(this.uniforms.uImage!, 0);
+
+    const safeIntensity = Math.min(1, Math.max(0, intensity));
+    gl.uniform1f(this.uniforms.uIntensity!, safeIntensity);
+
+    // Nếu áp 3D LUT
+    if (lut) {
+      gl.uniform1f(this.uniforms.uLutEnabled!, 1.0);
+      gl.uniform1f(this.uniforms.uLutSize!, lut.size);
+
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, this.lutTexture);
+      gl.uniform1i(this.uniforms.uLut!, 1);
+
+      if (this.currentLut !== lut) {
+        this.currentLut = lut;
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 0);
+        gl.texImage2D(
+          gl.TEXTURE_2D,
+          0,
+          gl.RGBA,
+          lut.size * lut.size,
+          lut.size,
+          0,
+          gl.RGBA,
+          gl.UNSIGNED_BYTE,
+          lut.rgbaData,
+        );
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      }
+
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      return;
+    }
+
+    // Chế độ EditParams thông thường
+    gl.uniform1f(this.uniforms.uLutEnabled!, 0.0);
+
+    const p = clampParams(params);
     gl.uniform1f(this.uniforms.uExposure!, p.exposure);
     gl.uniform1f(this.uniforms.uTemperature!, p.temperature / 1000);
     gl.uniform1f(this.uniforms.uTint!, p.tint / 100);
-    gl.uniform1f(this.uniforms.uContrast!, p.contrast / 100);
+    gl.uniform1f(this.uniforms.uContrast!, p.contrast);
     gl.uniform1f(this.uniforms.uHighlights!, p.highlights);
     gl.uniform1f(this.uniforms.uShadows!, p.shadows);
     gl.uniform1f(this.uniforms.uWhites!, p.whites);
     gl.uniform1f(this.uniforms.uBlacks!, p.blacks);
-    gl.uniform1f(this.uniforms.uSaturation!, p.saturation / 100);
-    gl.uniform1f(this.uniforms.uVibrance!, p.vibrance / 100);
+    gl.uniform1f(this.uniforms.uSaturation!, p.saturation);
+    gl.uniform1f(this.uniforms.uVibrance!, p.vibrance);
 
     const k = HSL_CHANNELS.map((c) => c.key);
-    const field = (i: number, f: 'hue' | 'saturation' | 'luminance') =>
-      p.hsl[k[i]][f] / 100;
+    const field = (idx: number, f: 'hue' | 'saturation' | 'luminance') =>
+      p.hsl[k[idx]][f] / 100;
+
     gl.uniform3f(
       this.uniforms.uHslHueA!, field(0, 'hue'), field(1, 'hue'), field(2, 'hue'),
     );
@@ -293,7 +401,6 @@ export class ImageEngine {
       this.uniforms.uHslLumC!, field(6, 'luminance'), field(7, 'luminance'),
     );
 
-    gl.uniform1f(this.uniforms.uIntensity!, intensity);
     if (splitTone?.shadow && splitTone.shadow.saturation > 0) {
       const [r, g, b] = hsvToRgb(splitTone.shadow.hue, 1, 1);
       const mid = (r + g + b) / 3;
@@ -316,6 +423,7 @@ export class ImageEngine {
   dispose() {
     const gl = this.gl;
     gl.deleteTexture(this.texture);
+    gl.deleteTexture(this.lutTexture);
     gl.deleteProgram(this.program);
     gl.getExtension('WEBGL_lose_context')?.loseContext();
   }
@@ -335,7 +443,7 @@ export async function loadImage(file: File): Promise<HTMLImageElement> {
       try {
         await img.decode();
       } catch {
-        /* decode() failure is non-fatal, image is already loaded */
+        /* decode() failure is non-fatal */
       }
     }
     return img;
@@ -363,13 +471,14 @@ export async function exportImage(
   params: EditParams,
   intensity: number,
   splitTone: SplitTone | null,
+  lut?: CubeLutData | null,
 ): Promise<void> {
   const canvas = document.createElement('canvas');
   canvas.width = img.naturalWidth;
   canvas.height = img.naturalHeight;
   const engine = new ImageEngine(canvas, img);
   try {
-    engine.render(params, intensity, splitTone);
+    engine.render(params, intensity, splitTone, lut);
     const blob = await new Promise<Blob | null>((resolve) =>
       canvas.toBlob(resolve, 'image/jpeg', 0.92),
     );

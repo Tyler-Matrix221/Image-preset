@@ -21,6 +21,7 @@ import {
   type SplitTone,
 } from '@/rules/params';
 import { PRESETS, applyPresetGuards, type Preset } from '@/rules/presets';
+import type { CubeLutData } from '@/rules/cubeImport';
 
 const PREVIEW_MAX_SIDE = 2048;
 
@@ -33,7 +34,7 @@ export default function App() {
   const [previewSrc, setPreviewSrc] = useState<HTMLCanvasElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
-  // Danh sách preset (bao gồm các preset mặc định và preset import qua .xmp)
+  // Danh sách preset (bao gồm các preset mặc định, preset .xmp và 3D LUT .cube)
   const [presets, setPresets] = useState<Preset[]>(PRESETS);
   // panel giữ giá trị preset gốc (không scale theo Cường độ)
   const [panel, setPanel] = useState<EditParams>(() => clampParams(DEFAULT_PARAMS));
@@ -43,29 +44,43 @@ export default function App() {
   const [showOriginal, setShowOriginal] = useState(false);
 
   const activePreset = presets.find((p) => p.id === activePresetId);
+  const isLutActive = Boolean(activePreset?.lut);
+
+  // Thanh Cường độ chỉ bị disable khi ở chế độ Gốc nguyên bản (không áp dụng cho LUT)
   const isIntensityDisabled =
+    !isLutActive &&
     paramsEqual(panel, DEFAULT_PARAMS) &&
     (!splitTone?.shadow || splitTone.shadow.saturation === 0);
 
   const render = useCallback(
-    (p: EditParams, inten: number, tone: SplitTone | null, original: boolean) => {
+    (
+      p: EditParams,
+      inten: number,
+      tone: SplitTone | null,
+      original: boolean,
+      lut?: CubeLutData | null,
+    ) => {
       const engine = engineRef.current;
       if (!engine) return;
       if (original) {
-        engine.render(clampParams(DEFAULT_PARAMS), 0, null);
+        // Giữ xem gốc: render ảnh gốc không hiệu ứng
+        engine.render(clampParams(DEFAULT_PARAMS), 0, null, null);
+      } else if (lut) {
+        // Áp 3D LUT: Cường độ 0 -> ảnh gốc, 100 -> áp toàn bộ LUT
+        engine.render(clampParams(DEFAULT_PARAMS), inten, null, lut);
       } else {
-        // Thông số hiệu lực = mặc định + (giá trị panel − mặc định) × Cường độ/100
+        // Preset thông số thông thường
         const effective = computeEffectiveParams(p, inten);
         const effectiveTone = computeEffectiveSplitTone(tone, inten);
-        engine.render(effective, 1, effectiveTone);
+        engine.render(effective, 1, effectiveTone, null);
       }
     },
     [],
   );
 
   useEffect(() => {
-    if (ready) render(panel, intensity, splitTone, showOriginal);
-  }, [ready, panel, intensity, splitTone, showOriginal, render]);
+    if (ready) render(panel, intensity, splitTone, showOriginal, activePreset?.lut);
+  }, [ready, panel, intensity, splitTone, showOriginal, activePreset, render]);
 
   useEffect(() => {
     if (!previewSrc) return;
@@ -76,7 +91,7 @@ export default function App() {
     engineRef.current?.dispose();
     try {
       engineRef.current = new ImageEngine(canvas, previewSrc);
-      render(panel, intensity, splitTone, showOriginal);
+      render(panel, intensity, splitTone, showOriginal, activePreset?.lut);
     } catch (e) {
       setError(
         e instanceof Error
@@ -172,15 +187,20 @@ export default function App() {
     if (!img || exporting) return;
     setExporting(true);
     try {
-      const effective = computeEffectiveParams(panel, intensity);
-      const effectiveTone = computeEffectiveSplitTone(splitTone, intensity);
-      await exportImage(img, effective, 1, effectiveTone);
+      const lut = activePreset?.lut;
+      if (lut) {
+        await exportImage(img, clampParams(DEFAULT_PARAMS), intensity, null, lut);
+      } else {
+        const effective = computeEffectiveParams(panel, intensity);
+        const effectiveTone = computeEffectiveSplitTone(splitTone, intensity);
+        await exportImage(img, effective, 1, effectiveTone, null);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Không xuất được ảnh');
     } finally {
       setExporting(false);
     }
-  }, [panel, intensity, splitTone, exporting]);
+  }, [panel, intensity, splitTone, exporting, activePreset]);
 
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-zinc-100 text-zinc-900">
@@ -218,8 +238,9 @@ export default function App() {
               onHslChange={handleHslChange}
               onResetAll={handleResetAll}
               resetDisabled={
-                activePreset ? paramsEqual(panel, activePreset.params) : false
+                isLutActive || (activePreset ? paramsEqual(panel, activePreset.params) : false)
               }
+              isLutActive={isLutActive}
             />
             <ControlsPanel
               intensity={intensity}
