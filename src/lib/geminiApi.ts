@@ -157,10 +157,8 @@ Example response format:
 }
 `.trim();
 
-  // 3. Gọi Gemini 2.5 Flash qua REST API
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(
-    key,
-  )}`;
+  // 3. Gọi Gemini qua REST API (ưu tiên gemini-2.5-flash, tự động fallback sang gemini-2.0-flash nếu máy chủ báo 503 high demand)
+  const candidateModels = ['gemini-2.5-flash', 'gemini-2.0-flash'];
 
   const payload = {
     contents: [
@@ -185,35 +183,66 @@ Example response format:
     },
   };
 
-  let response: Response;
-  try {
-    response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-  } catch (netErr) {
-    throw new Error('Lỗi kết nối mạng: Không thể kết nối tới Google Gemini API. Vui lòng kiểm tra lại đường truyền Internet.');
-  }
+  let response: Response | null = null;
+  let lastErrorDetail = '';
+  let lastStatus = 0;
 
-  if (!response.ok) {
-    let errDetail = '';
+  for (const model of candidateModels) {
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(
+      key,
+    )}`;
+
+    try {
+      response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+    } catch (netErr) {
+      throw new Error(
+        'Lỗi kết nối mạng: Không thể kết nối tới Google Gemini API. Vui lòng kiểm tra lại đường truyền Internet.',
+      );
+    }
+
+    if (response.ok) {
+      break;
+    }
+
+    lastStatus = response.status;
     try {
       const errJson = await response.json();
-      errDetail = errJson?.error?.message || '';
+      lastErrorDetail = errJson?.error?.message || '';
     } catch {
-      // ignore
+      lastErrorDetail = response.statusText;
     }
 
-    if (response.status === 400 || response.status === 403 || response.status === 401) {
-      throw new Error(`API key không hợp lệ hoặc không có quyền truy cập Gemini 2.5 Flash.${errDetail ? ` (${errDetail})` : ''}`);
+    // Nếu lỗi là do key sai / quyền truy cập (400, 401, 403), dừng ngay không cần thử model khác
+    if (response.status === 400 || response.status === 401 || response.status === 403) {
+      throw new Error(
+        `API key không hợp lệ hoặc không có quyền truy cập Gemini.${lastErrorDetail ? ` (${lastErrorDetail})` : ''}`,
+      );
     }
-    if (response.status === 429) {
-      throw new Error('Đã vượt quá hạn mức gọi Google Gemini API (Rate limit / Quota exceeded). Vui lòng thử lại sau.');
+
+    // Nếu là lỗi quá tải (503 / 429) hoặc model bận, tiếp tục thử model dự phòng tiếp theo
+    if (response.status === 503 || response.status === 429 || lastErrorDetail.toLowerCase().includes('demand')) {
+      console.warn(`[Gemini API] Model ${model} gặp tình trạng quá tải hoặc hạn mức (${response.status}). Đang thử model dự phòng...`);
+      continue;
     }
-    throw new Error(`Google Gemini API phản hồi lỗi (${response.status}): ${errDetail || response.statusText}`);
+
+    // Lỗi khác
+    break;
+  }
+
+  if (!response || !response.ok) {
+    if (lastStatus === 429) {
+      throw new Error('Đã vượt quá hạn mức gọi Google Gemini API (Rate limit / Quota exceeded). Vui lòng thử lại sau ít phút.');
+    }
+    if (lastStatus === 503 || lastErrorDetail.toLowerCase().includes('demand')) {
+      throw new Error('Máy chủ Google Gemini hiện đang quá tải lượt truy cập toàn cầu. Vui lòng thử lại sau vài giây.');
+    }
+    throw new Error(`Google Gemini API phản hồi lỗi (${lastStatus}): ${lastErrorDetail}`);
   }
 
   const result = await response.json();
