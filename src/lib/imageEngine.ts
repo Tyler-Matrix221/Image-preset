@@ -264,7 +264,7 @@ export class ImageEngine {
 
     const k = HSL_CHANNELS.map((c) => c.key);
     const field = (i: number, f: 'hue' | 'saturation' | 'luminance') =>
-      p.hsl[k[i]][f];
+      p.hsl[k[i]][f] / 100;
     gl.uniform3f(
       this.uniforms.uHslHueA!, field(0, 'hue'), field(1, 'hue'), field(2, 'hue'),
     );
