@@ -1,21 +1,20 @@
 # Bộ Prompt Phát Triển Dự Án — Studio Màu (Image Preset Web App)
 
-Thư mục này lưu trữ toàn bộ các prompt và yêu cầu kỹ thuật theo trình tự thời gian trong quá trình xây dựng, nâng cấp và tinh chỉnh dự án **Studio Màu**.
+Thư mục này lưu trữ tài liệu đặc tả và các prompt tiêu chuẩn theo từng giai đoạn phát triển của dự án **Studio Màu**. Mỗi file bao gồm phần **Mô tả (Description)** tổng hợp bối cảnh, mục tiêu và ràng buộc kỹ thuật, cùng với **Nội dung Prompt (Prompt Content)** nguyên bản để có thể tái tạo hoặc chuyển tiếp cho AI Agent.
 
 ---
 
-## Danh Sách Các Giai Đoạn (Prompts)
+## Danh Sách Các Prompts
 
-| STT | File Prompt | Mục Tiêu Chính | Kết Quả Đạt Được |
+| File Prompt | Tiêu Đề Giai Đoạn | Tóm Tắt Mục Tiêu Kỹ Thuật | Trạng Thái |
 |---|---|---|---|
-| **01** | [01-prompt-baseline.md](file:///Users/tylernguyen/Documents/TylerMatrix221/prompts/01-prompt-baseline.md) | Khởi tạo baseline WebGL client-side, 4 preset cơ bản, cường độ, so sánh trước/sau & xuất ảnh JPEG. | App chạy trơn tru, xử lý client-side không qua server, hoàn thành commit `Prompt 1 baseline OK`. |
-| **02** | [02-prompt-rules-params-hsl.md](file:///Users/tylernguyen/Documents/TylerMatrix221/prompts/02-prompt-rules-params-hsl.md) | Tách schema thông số `params.ts`, `presets.ts`, xây dựng hàm kẹp `clampParams()`, HSL 8 kênh & guard da cam. | Phân tách kiến trúc logic/rules rõ ràng; bảo vệ màu da không bị cháy/ám màu khi áp preset. |
-| **03** | [03-prompt-fix-original-comparison.md](file:///Users/tylernguyen/Documents/TylerMatrix221/prompts/03-prompt-fix-original-comparison.md) | Khắc phục lỗi hiển thị lệch màu giữa preset "Gốc" và nút "Xem ảnh gốc". | Sửa lỗi typo thuật toán `rgb2hsv` trong shader và loại bỏ offset Bayer 0.5. |
-| **04** | [04-prompt-natural-presets-tuning.md](file:///Users/tylernguyen/Documents/TylerMatrix221/prompts/04-prompt-natural-presets-tuning.md) | Cân chỉnh lại thông số các preset (Tông lạnh, Tông ấm, Film nhạt) để ảnh trông tự nhiên, không bị gắt 100%. | Chuẩn hóa tỉ lệ HSL uniform 1/100, tinh chỉnh nhiệt độ K và tint cho ảnh tự nhiên, nịnh mắt. |
-| **05** | [05-prompt-light-mode.md](file:///Users/tylernguyen/Documents/TylerMatrix221/prompts/05-prompt-light-mode.md) | Chuyển đổi toàn bộ theme từ Dark Mode sang Light Mode hiện đại, sáng sủa, độ tương phản cao. | Giao diện Light Mode phong cách Lightroom / Apple sạch sẽ, dễ nhìn, thanh trượt trực quan. |
+| [01-prompt.md](file:///Users/tylernguyen/Documents/TylerMatrix221/prompts/01-prompt.md) | **Prompt 1: Baseline Web App** | Khởi tạo web app React + Vite + TypeScript + WebGL client-side; 4 preset cơ bản; thanh Cường độ; giữ xem gốc; xuất JPEG gốc. | Hoàn thành (`Prompt 1 baseline OK`) |
+| [02-prompt.md](file:///Users/tylernguyen/Documents/TylerMatrix221/prompts/02-prompt.md) | **Prompt 2: Rules & HSL Guards** | Tách file `params.ts` & `presets.ts`; schema thông số 3 nhóm; hàm kẹp `clampParams()`; reset đúp chuột; HSL 8 kênh; guard bảo vệ màu da cho Tông lạnh. | Hoàn thành |
+| [03-prompt.md](file:///Users/tylernguyen/Documents/TylerMatrix221/prompts/03-prompt.md) | **Prompt 3: Nhập Preset .XMP** | Nhập preset Adobe Camera Raw (.xmp) phía client; phân tích text/XML `src/rules/xmpImport.ts`; ánh xạ thông số & quy đổi nhiệt độ màu; kẹp qua `clampParams()`. | Đang thực hiện |
 
 ---
 
-## Hướng Dẫn Sử Dụng
-- Các file prompt được viết theo dạng chỉ thị chi tiết, có thể copy trực tiếp vào các Agent hoặc mô hình AI (Claude, GPT, Gemini) để tái tạo hoặc mở rộng dự án.
-- Mọi nguyên tắc cốt lõi: **Không AI, Không Server/Cloud xử lý ảnh, Không crop/thay đổi hình học, 100% WebGL Client-side**.
+## Nguyên Tắc Cốt Lõi Dự Án
+1. **100% Client-side**: Mọi tính toán, áp filter, phân tích file `.xmp` và xuất ảnh diễn ra hoàn toàn trên trình duyệt người dùng qua WebGL.
+2. **Bảo Vệ Tính Toàn Vẹn Ảnh**: Tuyệt đối không dùng AI, không gửi ảnh lên máy chủ, không biến dạng hay crop khung hình.
+3. **An Toàn Dữ Liệu**: Mọi giá trị tham số từ bất kỳ nguồn nào (preset mặc định, slider, file XMP import) đều phải đi qua `clampParams()`.
