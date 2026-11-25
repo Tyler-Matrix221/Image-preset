@@ -913,3 +913,116 @@ CRITICAL RULES:
     suggestedCrop,
   };
 }
+
+export interface GeneratePoseImageOptions {
+  sceneImage: HTMLImageElement | HTMLCanvasElement;
+  tip: string;
+  modelGender: ModelGender;
+  apiKey?: string;
+}
+
+const IMAGE_GEN_MODELS = [
+  'gemini-2.5-flash-image',
+  'gemini-3.1-flash-image',
+  'gemini-3.1-flash-lite-image',
+];
+
+/**
+ * Cách 2: Dùng Gemini Image Generation ghép một người mẫu thật vào đúng ảnh bối cảnh
+ * theo tư thế (tip) và giới tính mẫu (Nam/Nữ/Cặp đôi).
+ * Lưu ý: Các model tạo ảnh của Google yêu cầu API Key đã bật Billing (trả phí).
+ */
+export async function generatePosePreviewImage({
+  sceneImage,
+  tip,
+  modelGender,
+  apiKey,
+}: GeneratePoseImageOptions): Promise<string> {
+  const key = (apiKey || getStoredApiKey()).trim();
+  if (!key) {
+    throw new Error(
+      'Tính năng vẽ người mẫu thật yêu cầu nhập Google Gemini API Key cá nhân (đã bật Billing) trong Cài đặt.',
+    );
+  }
+
+  const { base64Data, mimeType } = await createGeminiThumbnail(sceneImage, 768);
+  const subjectDesc =
+    modelGender === 'male'
+      ? 'a stylish young Vietnamese man in casual modern outfit'
+      : modelGender === 'couple'
+      ? 'a stylish young Vietnamese couple in matching casual outfits'
+      : 'a stylish young Vietnamese woman in casual modern outfit';
+
+  const promptText = `Keep this exact background, furniture, perspective, and lighting completely unchanged. Naturally place ${subjectDesc} into this scene following this exact pose instruction: "${tip}". Make lighting, shadows on the floor/furniture, and proportions photorealistic so the photographer and model can use it as a pose reference.`;
+
+  const payload = {
+    contents: [
+      {
+        parts: [
+          {
+            inline_data: {
+              mime_type: mimeType,
+              data: base64Data,
+            },
+          },
+          { text: promptText },
+        ],
+      },
+    ],
+    generationConfig: {
+      responseModalities: ['IMAGE'],
+    },
+  };
+
+  let lastStatus = 0;
+  let lastErr = '';
+
+  for (const model of IMAGE_GEN_MODELS) {
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(
+      key,
+    )}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30000);
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+
+      if (res.ok) {
+        const data = await res.json();
+        const parts: any[] = data?.candidates?.[0]?.content?.parts || [];
+        for (const part of parts) {
+          const inline = part?.inlineData || part?.inline_data;
+          if (inline?.data) {
+            const outMime = inline.mimeType || inline.mime_type || 'image/png';
+            return `data:${outMime};base64,${inline.data}`;
+          }
+        }
+        lastErr = 'Model không trả về dữ liệu ảnh.';
+        continue;
+      }
+
+      lastStatus = res.status;
+      try {
+        const errJson = await res.json();
+        lastErr = errJson?.error?.message || res.statusText;
+      } catch {
+        lastErr = res.statusText;
+      }
+    } catch (e: any) {
+      clearTimeout(timer);
+      lastErr = e?.name === 'AbortError' ? 'Quá thời gian tạo ảnh (30s).' : 'Lỗi kết nối mạng.';
+    }
+  }
+
+  if (lastStatus === 429) {
+    throw new Error(
+      'Model vẽ người mẫu thật của Google không hỗ trợ gói Free Tier (Quota = 0). Vui lòng bật Billing (trả phí) cho Gemini API Key trong Google AI Studio để sử dụng tính năng này.',
+    );
+  }
+  throw new Error(lastErr || 'Không thể tạo ảnh người mẫu thật.');
+}

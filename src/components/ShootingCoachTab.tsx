@@ -11,12 +11,14 @@ import {
   RefreshCw,
   Sparkles,
   Upload,
+  UserCheck,
   X,
 } from 'lucide-react';
 import { readBasicExif, type PhotoExif } from '@/lib/exifReader';
 import {
   analyzeShootingScene,
   DemoLimitReachedError,
+  generatePosePreviewImage,
   getDemoQuota,
   hasAiAccess,
   hasDemoProxy,
@@ -54,8 +56,14 @@ export default function ShootingCoachTab({
 
   const [refUrl, setRefUrl] = useState<string | null>(null);
   const [modelGender, setModelGender] = useState<ModelGender>('female');
+  const [analyzedGender, setAnalyzedGender] = useState<ModelGender | null>(null);
   const [guide, setGuide] = useState<ShootingGuideResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  // Cách 2: Ảnh AI ghép người mẫu thật vào bối cảnh
+  const [generatedPoseUrl, setGeneratedPoseUrl] = useState<string | null>(null);
+  const [showGeneratedPose, setShowGeneratedPose] = useState(false);
+  const [isGeneratingPoseImg, setIsGeneratingPoseImg] = useState(false);
 
   // Ảnh mẫu đã crop & cân thẳng theo gợi ý AI
   const [croppedUrl, setCroppedUrl] = useState<string | null>(null);
@@ -121,6 +129,9 @@ export default function ShootingCoachTab({
     setCropPreviewActive(false);
     setShowOverlay(false);
     setGuide(null);
+    setAnalyzedGender(null);
+    setGeneratedPoseUrl(null);
+    setShowGeneratedPose(false);
     setPosePos({ x: 50, y: 54, scale: 0.9 });
     setSkeletonOffset({ dx: 0, dy: 0 });
 
@@ -169,6 +180,9 @@ export default function ShootingCoachTab({
 
       onQuotaUpdated(getDemoQuota());
       setGuide(result);
+      setAnalyzedGender(modelGender);
+      setGeneratedPoseUrl(null);
+      setShowGeneratedPose(false);
       setShowOverlay(true);
       setShowAllPoses(false);
       setCropPreviewActive(false);
@@ -257,10 +271,40 @@ export default function ShootingCoachTab({
     setPosePos((prev) => remapPoseForCrop(prev, guide.suggestedCrop!, next));
   };
 
+  const handleGenerateRealPose = async () => {
+    const targetFile = cropPreviewActive && croppedFile ? croppedFile : sceneFile;
+    if (!targetFile) return;
+    if (!hasApiKey) {
+      onOpenSettings(
+        'Tính năng ghép người mẫu thật (Cách 2) yêu cầu Gemini API Key cá nhân có bật Billing trên Google AI Studio.',
+      );
+      return;
+    }
+
+    setIsGeneratingPoseImg(true);
+    try {
+      const img = await loadImage(targetFile);
+      const dataUrl = await generatePosePreviewImage({
+        sceneImage: img,
+        tip: activeTipText,
+        modelGender,
+      });
+      setGeneratedPoseUrl(dataUrl);
+      setShowGeneratedPose(true);
+    } catch (err) {
+      onError(
+        err instanceof Error ? err.message : 'Không thể ghép người mẫu thật vào ảnh này.',
+      );
+    } finally {
+      setIsGeneratingPoseImg(false);
+    }
+  };
+
   const handleSelectAiPose = (p: PoseSuggestion) => {
     setSelectedPoseId(p.poseId);
     setFlipPose(Boolean(p.flipHorizontal));
     setSkeletonOffset({ dx: 0, dy: 0 });
+    setShowGeneratedPose(false);
     const base = { x: p.xPercent, y: p.yPercent, scale: p.scale };
     if (cropPreviewActive && guide?.suggestedCrop) {
       setPosePos(remapPoseForCrop(base, guide.suggestedCrop, true));
@@ -408,7 +452,13 @@ export default function ShootingCoachTab({
             >
               <img
                 ref={imgRef}
-                src={cropPreviewActive && croppedUrl ? croppedUrl : sceneUrl}
+                src={
+                  showGeneratedPose && generatedPoseUrl
+                    ? generatedPoseUrl
+                    : cropPreviewActive && croppedUrl
+                    ? croppedUrl
+                    : sceneUrl
+                }
                 alt="Bối cảnh chụp"
                 draggable={false}
                 onLoad={() => {
@@ -450,8 +500,8 @@ export default function ShootingCoachTab({
                 </div>
               )}
 
-              {/* Lớp khung dáng nét trắng: ưu tiên Dynamic Skeleton từ AI nếu có */}
-              {showOverlay && activeAiPose?.skeleton && !showAllPoses ? (
+              {/* Lớp khung dáng nét trắng: ẩn khi đang xem ảnh người thật mẫu */}
+              {showOverlay && !showGeneratedPose && activeAiPose?.skeleton && !showAllPoses ? (
                 (() => {
                   const sk: DynamicSkeleton = activeAiPose.skeleton;
                   const boxW = imgBoxSize?.width || 300;
@@ -522,7 +572,7 @@ export default function ShootingCoachTab({
                     </svg>
                   );
                 })()
-              ) : showOverlay ? (
+              ) : showOverlay && !showGeneratedPose ? (
                 <div
                   className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2"
                   style={{
@@ -572,8 +622,22 @@ export default function ShootingCoachTab({
             </div>
 
             {/* Nút điều khiển nhanh góc dưới ảnh */}
-            <div className="absolute bottom-3 right-3 z-10 flex items-center gap-1.5">
-              {croppedUrl && (
+            <div className="absolute bottom-3 right-3 z-10 flex flex-wrap items-center justify-end gap-1.5">
+              {generatedPoseUrl && (
+                <button
+                  type="button"
+                  onClick={() => setShowGeneratedPose((v) => !v)}
+                  className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold backdrop-blur-xs transition-colors ${
+                    showGeneratedPose
+                      ? 'border-emerald-400 bg-emerald-400 text-zinc-950'
+                      : 'border-white/20 bg-zinc-950/70 text-white hover:bg-zinc-900'
+                  }`}
+                >
+                  <UserCheck size={12} />
+                  <span>{showGeneratedPose ? 'Xem khung dáng' : 'Ảnh mẫu thật'}</span>
+                </button>
+              )}
+              {croppedUrl && !showGeneratedPose && (
                 <button
                   type="button"
                   onClick={handleToggleCropPreview}
@@ -708,6 +772,23 @@ export default function ShootingCoachTab({
               </div>
             </div>
 
+            {/* Nhắc tạo lại tư thế khi đổi đối tượng mẫu (Nam / Nữ / Cặp đôi) */}
+            {guide && analyzedGender && analyzedGender !== modelGender && (
+              <button
+                type="button"
+                onClick={handleAnalyze}
+                disabled={isAnalyzing}
+                className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-amber-400 bg-amber-50 px-3 py-2 text-[12px] font-semibold text-amber-950 hover:bg-amber-100 transition-colors"
+              >
+                <RefreshCw size={13} className={isAnalyzing ? 'animate-spin' : ''} />
+                <span>
+                  Đã đổi sang{' '}
+                  {modelGender === 'male' ? 'Nam' : modelGender === 'couple' ? 'Cặp đôi' : 'Nữ'} —
+                  Bấm để tạo lại tư thế phù hợp
+                </span>
+              </button>
+            )}
+
             {/* Nút AI phân tích góc & thông số + Tùy chọn ảnh mẫu */}
             <div className="flex items-center gap-2">
               <button
@@ -758,6 +839,28 @@ export default function ShootingCoachTab({
                 </button>
               )}
             </div>
+
+            {/* Cách 2: Ghép người mẫu thật vào ảnh bối cảnh (Yêu cầu Key có Billing) */}
+            {guide && (
+              <button
+                type="button"
+                onClick={handleGenerateRealPose}
+                disabled={isGeneratingPoseImg}
+                className="flex h-9 w-full items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50/70 px-3 text-[12px] font-semibold text-rose-900 hover:bg-rose-100/70 disabled:opacity-50 transition-all"
+              >
+                {isGeneratingPoseImg ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    <span>Đang ghép người mẫu thật vào cảnh...</span>
+                  </>
+                ) : (
+                  <>
+                    <UserCheck size={14} className="text-rose-600" />
+                    <span>Vẽ người thật mẫu vào cảnh này (Cần Key Billing)</span>
+                  </>
+                )}
+              </button>
+            )}
 
             {/* Hiển thị EXIF hiện tại (nếu đọc được) */}
             {sceneExif && (
