@@ -8,6 +8,8 @@ import {
   type HslChannelKey,
   type ScalarKey,
 } from '@/rules/params';
+import { POSE_TEMPLATES } from '@/rules/poseTemplates';
+import type { PhotoExif } from '@/lib/exifReader';
 
 export const GEMINI_STORAGE_KEY = 'gemini_api_key';
 
@@ -640,4 +642,179 @@ Example response format:
   const rawText = await callGeminiFlash(payload, key);
   const { params } = parseAndSanitizeAiParams(rawText);
   return params;
+}
+
+export interface PoseSuggestion {
+  poseId: string;
+  tip: string;
+  xPercent: number;
+  yPercent: number;
+  scale: number;
+}
+
+export interface ShootingGuideResult {
+  lightingSummary: string;
+  angleAdvice: string;
+  cameraSettings: {
+    aperture: string;
+    shutterSpeed: string;
+    iso: string;
+    whiteBalance: string;
+    ev: string;
+  };
+  poses: PoseSuggestion[];
+}
+
+export interface AnalyzeSceneOptions {
+  sceneImage: HTMLImageElement | HTMLCanvasElement;
+  referenceImage?: HTMLImageElement | HTMLCanvasElement | null;
+  exif?: PhotoExif | null;
+  apiKey?: string;
+}
+
+/**
+ * Phân tích ảnh bối cảnh (kèm EXIF và ảnh mẫu góc nếu có) để gợi ý:
+ * 1. Thông số máy ảnh (Khẩu độ, Tốc độ, ISO, Cân bằng trắng, EV)
+ * 2. Góc máy & bố cục cần điều chỉnh
+ * 3. 3–4 tư thế tạo dáng phù hợp kèm tọa độ đặt khung SVG nét trắng.
+ */
+export async function analyzeShootingScene({
+  sceneImage,
+  referenceImage,
+  exif,
+  apiKey,
+}: AnalyzeSceneOptions): Promise<ShootingGuideResult> {
+  const key = (apiKey || getStoredApiKey()).trim();
+  if (!key && !DEMO_PROXY_URL) {
+    throw new Error('Vui lòng nhập Google Gemini API key trong Cài đặt trước khi dùng tính năng này.');
+  }
+
+  const thumbScene = await createGeminiThumbnail(sceneImage, 512);
+  const thumbRef = referenceImage ? await createGeminiThumbnail(referenceImage, 512) : null;
+
+  const poseCatalog = POSE_TEMPLATES.map(
+    (p) => `- "${p.id}": ${p.name} (${p.category})`,
+  ).join('\n');
+
+  const exifNote = exif
+    ? `Current test shot EXIF metadata: ISO ${exif.iso ?? 'unknown'}, Aperture f/${exif.fNumber ?? 'unknown'}, Shutter ${exif.exposureTime ?? 'unknown'}, Focal ${exif.focalLength ?? 'unknown'}mm, Camera: ${exif.cameraModel ?? 'unknown'}.`
+    : 'No EXIF metadata available.';
+
+  const promptText = `
+You are a professional portrait & lifestyle photographer coaching a beginner on location.
+Image 1 is the current SCENE / TEST SHOT taken by the user.
+${thumbRef ? 'Image 2 is a REFERENCE photo whose composition, camera angle, or pose the user wants to replicate in Image 1.' : ''}
+${exifNote}
+
+Analyze Image 1 carefully and return practical, easy-to-follow guidance in VIETNAMESE:
+1. "lightingSummary": Brief 1-sentence summary of the lighting & environment (e.g. "Nắng chiều chếch bên phải, hậu cảnh sáng").
+2. "angleAdvice": Concise 1–2 sentences telling the photographer how to adjust camera angle, distance, or framing for better balance (e.g. "Hạ máy thấp ngang hông, bước sang trái 1 bước để tránh cột phía sau và đặt chủ thể ở 1/3 phải").
+3. "cameraSettings": Starting-point camera settings tailored to this lighting:
+   - "aperture": e.g. "f/2.8"
+   - "shutterSpeed": e.g. "1/250s"
+   - "iso": e.g. "200"
+   - "whiteBalance": e.g. "5400K"
+   - "ev": e.g. "+0.3 EV"
+4. "poses": Pick 3 to 4 best poses from the ALLOWED POSE IDS below for this scene. For each pose provide:
+   - "poseId": exact id from the list
+   - "tip": 1 short, natural Vietnamese instruction for the model (like Huawei AI Pose Guide, e.g. "Người xoay nhẹ 45°, một tay chạm tóc, mắt nhìn sang trái")
+   - "xPercent": number 20..80 (horizontal center where the model should stand in Image 1)
+   - "yPercent": number 30..75 (vertical center in Image 1)
+   - "scale": number 0.6..1.25 (size relative to frame height)
+
+ALLOWED POSE IDS:
+${poseCatalog}
+
+CRITICAL RULES:
+- ONLY return a single raw JSON object. No markdown, no explanations.
+`.trim();
+
+  const parts: any[] = [
+    {
+      inline_data: {
+        mime_type: thumbScene.mimeType,
+        data: thumbScene.base64Data,
+      },
+    },
+  ];
+
+  if (thumbRef) {
+    parts.push({
+      inline_data: {
+        mime_type: thumbRef.mimeType,
+        data: thumbRef.base64Data,
+      },
+    });
+  }
+
+  parts.push({ text: promptText });
+
+  const payload = {
+    contents: [{ parts }],
+    generationConfig: {
+      response_mime_type: 'application/json',
+      temperature: 0.3,
+    },
+  };
+
+  const rawText = await callGeminiFlash(payload, key);
+  const cleaned = rawText
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    throw new Error('Không đọc được kết quả phân tích góc chụp từ AI.');
+  }
+
+  const validIds = new Set(POSE_TEMPLATES.map((p) => p.id));
+  const rawPoses: any[] = Array.isArray(parsed?.poses) ? parsed.poses : [];
+
+  const poses: PoseSuggestion[] = rawPoses
+    .filter((item) => item && validIds.has(String(item.poseId)))
+    .slice(0, 4)
+    .map((item) => ({
+      poseId: String(item.poseId),
+      tip:
+        typeof item.tip === 'string' && item.tip.trim()
+          ? item.tip.trim()
+          : POSE_TEMPLATES.find((p) => p.id === item.poseId)?.defaultTip || '',
+      xPercent: Math.min(82, Math.max(18, Number(item.xPercent) || 50)),
+      yPercent: Math.min(78, Math.max(25, Number(item.yPercent) || 54)),
+      scale: Math.min(1.3, Math.max(0.55, Number(item.scale) || 0.9)),
+    }));
+
+  if (poses.length === 0) {
+    poses.push({
+      poseId: POSE_TEMPLATES[0].id,
+      tip: POSE_TEMPLATES[0].defaultTip,
+      xPercent: 50,
+      yPercent: 55,
+      scale: 0.9,
+    });
+  }
+
+  const cs = parsed?.cameraSettings || {};
+  return {
+    lightingSummary:
+      typeof parsed?.lightingSummary === 'string'
+        ? parsed.lightingSummary
+        : 'Ánh sáng tự nhiên cân đối.',
+    angleAdvice:
+      typeof parsed?.angleAdvice === 'string'
+        ? parsed.angleAdvice
+        : 'Giữ đường chân trời thẳng và đặt chủ thể theo tỷ lệ 1/3.',
+    cameraSettings: {
+      aperture: String(cs.aperture || 'f/2.8'),
+      shutterSpeed: String(cs.shutterSpeed || '1/250s'),
+      iso: String(cs.iso || '200'),
+      whiteBalance: String(cs.whiteBalance || '5500K'),
+      ev: String(cs.ev || '0 EV'),
+    },
+    poses,
+  };
 }
