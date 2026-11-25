@@ -304,7 +304,7 @@ async function callGeminiFlash(payload: any, apiKey: string): Promise<string> {
   if ((!response || !response.ok) && overloadFailures >= 2 && DEMO_PROXY_URL) {
     console.warn('[Gemini API] Google quá tải >= 2 lần, đang chuyển sang Vision fallback (api.xah.io)...');
     const fbController = new AbortController();
-    const fbTimer = setTimeout(() => fbController.abort(), 25000);
+    const fbTimer = setTimeout(() => fbController.abort(), 45000);
     try {
       const fbRes = await fetch(`${DEMO_PROXY_URL}/vision-fallback`, {
         method: 'POST',
