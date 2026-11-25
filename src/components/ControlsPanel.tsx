@@ -7,6 +7,7 @@ interface ControlsPanelProps {
   onHoldOriginal: (pressed: boolean) => void;
   exporting: boolean;
   showOriginal: boolean;
+  intensityDisabled?: boolean;
 }
 
 export default function ControlsPanel({
@@ -16,14 +17,22 @@ export default function ControlsPanel({
   onHoldOriginal,
   exporting,
   showOriginal,
+  intensityDisabled = false,
 }: ControlsPanelProps) {
   return (
     <div className="space-y-4 px-4 pb-5">
-      <div>
+      <div className={intensityDisabled ? 'opacity-40 transition-opacity' : 'transition-opacity'}>
         <div className="flex items-baseline justify-between">
-          <span className="text-[13px] font-medium text-zinc-300">Cường độ</span>
-          <span className="text-[12px] font-mono tabular-nums text-amber-400">
-            {Math.round(intensity * 100)}%
+          <div className="flex items-center gap-1.5">
+            <span className="text-[13px] font-semibold text-zinc-700">Cường độ</span>
+            {intensityDisabled && (
+              <span className="text-[11px] font-medium text-zinc-400 italic">
+                (chế độ Gốc)
+              </span>
+            )}
+          </div>
+          <span className="text-[12px] font-mono font-bold tabular-nums text-amber-600">
+            {intensityDisabled ? '—' : `${Math.round(intensity * 100)}%`}
           </span>
         </div>
         <input
@@ -31,10 +40,16 @@ export default function ControlsPanel({
           min={0}
           max={100}
           step={1}
-          value={Math.round(intensity * 100)}
+          disabled={intensityDisabled}
+          value={intensityDisabled ? 100 : Math.round(intensity * 100)}
           onChange={(e) => onIntensityChange(parseInt(e.target.value, 10) / 100)}
-          className="param-range mt-1.5 w-full"
+          className="param-range mt-1.5 w-full disabled:cursor-not-allowed"
           aria-label="Cường độ"
+          title={
+            intensityDisabled
+              ? 'Chế độ gốc nguyên bản không cần áp dụng cường độ'
+              : 'Điều chỉnh cường độ preset'
+          }
         />
       </div>
 
@@ -48,10 +63,10 @@ export default function ControlsPanel({
           onPointerUp={() => onHoldOriginal(false)}
           onPointerCancel={() => onHoldOriginal(false)}
           onContextMenu={(e) => e.preventDefault()}
-          className={`flex h-12 flex-1 touch-none select-none items-center justify-center gap-2 rounded-xl border text-[14px] font-medium transition-colors ${
+          className={`flex h-12 flex-1 touch-none select-none items-center justify-center gap-2 rounded-xl border text-[14px] font-medium transition-colors shadow-xs ${
             showOriginal
-              ? 'border-amber-400/60 bg-amber-400/10 text-amber-300'
-              : 'border-white/[0.08] bg-zinc-900/60 text-zinc-300 active:bg-white/[0.06]'
+              ? 'border-amber-500 bg-amber-500/15 font-semibold text-amber-900'
+              : 'border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 active:bg-zinc-100'
           }`}
         >
           <Eye size={17} />
@@ -61,7 +76,7 @@ export default function ControlsPanel({
           type="button"
           onClick={onExport}
           disabled={exporting}
-          className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-amber-400 text-[14px] font-semibold text-zinc-950 transition-transform active:scale-[0.97] disabled:opacity-50"
+          className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-amber-400 text-[14px] font-bold text-zinc-950 transition-all hover:bg-amber-300 active:scale-[0.98] disabled:opacity-50 shadow-xs"
         >
           <Download size={17} />
           {exporting ? 'Đang xuất...' : 'Xuất ảnh'}

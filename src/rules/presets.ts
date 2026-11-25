@@ -5,6 +5,7 @@ import {
   type HslChannelKey,
   type SplitTone,
 } from './params';
+import type { CubeLutData } from './cubeImport';
 
 export interface Preset {
   id: string;
@@ -12,6 +13,8 @@ export interface Preset {
   params: EditParams;
   /** Split tone đi kèm preset (hiện chỉ dùng cho vùng tối của Tông lạnh). */
   splitTone?: SplitTone;
+  /** Dữ liệu 3D LUT nếu preset là file .cube */
+  lut?: CubeLutData;
 }
 
 /** Guard cứng của preset Tông lạnh: bão hòa kênh Cam KHÔNG BAO GIỜ được dương
@@ -19,7 +22,7 @@ export interface Preset {
  *  app (kể cả rule bị sửa tay thành giá trị dương) đều bị kẹp về tối đa 0. */
 export const COOL_PRESET_ORANGE_SAT_MAX = 0;
 
-function applyPresetGuards(params: EditParams, presetId: string): EditParams {
+export function applyPresetGuards(params: EditParams, presetId: string): EditParams {
   const clamped = clampParams(params);
   if (presetId === 'cool') {
     clamped.hsl.orange.saturation = Math.min(
@@ -42,27 +45,44 @@ export const PRESETS: Preset[] = [
     params: applyPresetGuards(
       {
         ...DEFAULT_PARAMS,
-        temperature: -650,
-        tint: 5,
+        temperature: -160,
+        tint: 4,
+        contrast: 4,
+        highlights: -6,
+        shadows: 4,
+        vibrance: 4,
         hsl: {
           ...DEFAULT_PARAMS.hsl,
-          orange: { hue: 0, saturation: -8, luminance: 0 }, // guard màu da, max = 0
-          yellow: { hue: 0, saturation: -20, luminance: 0 },
-          green: { hue: 0, saturation: -25, luminance: 0 },
-          blue: { hue: 0, saturation: 10, luminance: 0 },
+          orange: { hue: 0, saturation: -6, luminance: 2 }, // guard bảo vệ màu da, max = 0
+          yellow: { hue: -2, saturation: -12, luminance: 0 },
+          green: { hue: 4, saturation: -10, luminance: 0 },
+          aqua: { hue: 0, saturation: 8, luminance: 0 },
+          blue: { hue: 0, saturation: 8, luminance: -2 },
         },
       },
       'cool',
     ),
-    splitTone: { shadow: { hue: 190, saturation: 12 } },
+    splitTone: { shadow: { hue: 195, saturation: 8 } },
   },
   {
     id: 'warm',
     name: 'Tông ấm',
     params: clampParams({
       ...DEFAULT_PARAMS,
-      temperature: 400,
-      saturation: 5,
+      temperature: 140,
+      tint: -2,
+      contrast: 3,
+      highlights: -8,
+      shadows: 6,
+      saturation: 4,
+      vibrance: 6,
+      hsl: {
+        ...DEFAULT_PARAMS.hsl,
+        orange: { hue: 1, saturation: 4, luminance: 2 },
+        yellow: { hue: -3, saturation: 6, luminance: 1 },
+        red: { hue: 0, saturation: 3, luminance: 0 },
+        blue: { hue: 0, saturation: -6, luminance: 0 },
+      },
     }),
   },
   {
@@ -70,10 +90,21 @@ export const PRESETS: Preset[] = [
     name: 'Film nhạt',
     params: clampParams({
       ...DEFAULT_PARAMS,
-      contrast: -20,
-      highlights: -25,
-      blacks: 25,
-      saturation: -20,
+      contrast: -8,
+      highlights: -12,
+      shadows: 8,
+      whites: -4,
+      blacks: 12,
+      temperature: 40,
+      tint: 1,
+      saturation: -8,
+      vibrance: -4,
+      hsl: {
+        ...DEFAULT_PARAMS.hsl,
+        green: { hue: 8, saturation: -8, luminance: 2 },
+        orange: { hue: 0, saturation: -4, luminance: 3 },
+        yellow: { hue: -4, saturation: -6, luminance: 0 },
+      },
     }),
   },
 ];

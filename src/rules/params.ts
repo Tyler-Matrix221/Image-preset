@@ -37,7 +37,7 @@ export interface EditParams {
 export type ScalarKey = Exclude<keyof EditParams, 'hsl'>;
 export type HslFieldKey = keyof HslChannel;
 
-export type ParamGroup = 'Ánh sáng' | 'Màu sắc';
+export type ParamGroup = 'Ánh sáng' | 'Màu sắc' | 'HSL';
 
 export interface ParamSchema {
   key: ScalarKey;
@@ -46,7 +46,7 @@ export interface ParamSchema {
   max: number;
   def: number;
   step: number;
-  group: ParamGroup;
+  group: 'Ánh sáng' | 'Màu sắc';
 }
 
 export const PARAM_SCHEMAS: ParamSchema[] = [
@@ -64,7 +64,7 @@ export const PARAM_SCHEMAS: ParamSchema[] = [
   { key: 'vibrance', label: 'Độ rực rỡ', min: -100, max: 100, def: 0, step: 1, group: 'Màu sắc' },
 ];
 
-export const PARAM_GROUPS: ParamGroup[] = ['Ánh sáng', 'Màu sắc'];
+export const PARAM_GROUPS: ParamGroup[] = ['Ánh sáng', 'Màu sắc', 'HSL'];
 
 export interface HslChannelSchema {
   key: HslChannelKey;
@@ -200,4 +200,18 @@ export function paramsEqual(a: EditParams, b: EditParams): boolean {
 /** Split tone: nhuộm màu vùng tối theo hue (0–360) và cường độ (0–100). */
 export interface SplitTone {
   shadow: { hue: number; saturation: number } | null;
+}
+
+export function computeEffectiveSplitTone(
+  tone: SplitTone | null | undefined,
+  intensity: number,
+): SplitTone | null {
+  if (!tone?.shadow) return null;
+  const k = Math.min(1, Math.max(0, intensity));
+  return {
+    shadow: {
+      hue: tone.shadow.hue,
+      saturation: tone.shadow.saturation * k,
+    },
+  };
 }
