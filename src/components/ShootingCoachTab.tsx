@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Camera,
+  Crop,
   Eye,
   EyeOff,
   ImagePlus,
@@ -21,6 +22,7 @@ import {
   type DemoQuota,
   type PoseSuggestion,
   type ShootingGuideResult,
+  type SuggestedCrop,
 } from '@/lib/geminiApi';
 import { loadImage } from '@/lib/imageEngine';
 import { POSE_TEMPLATES, getPoseById, type PoseTemplate } from '@/rules/poseTemplates';
@@ -49,6 +51,11 @@ export default function ShootingCoachTab({
   const [refUrl, setRefUrl] = useState<string | null>(null);
   const [guide, setGuide] = useState<ShootingGuideResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  // Ảnh mẫu đã crop & cân thẳng theo gợi ý AI
+  const [croppedUrl, setCroppedUrl] = useState<string | null>(null);
+  const [croppedFile, setCroppedFile] = useState<File | null>(null);
+  const [cropPreviewActive, setCropPreviewActive] = useState(false);
 
   // Khung dáng đang chọn & vị trí kéo thả trên ảnh
   const [selectedPoseId, setSelectedPoseId] = useState<string>(POSE_TEMPLATES[0].id);
@@ -97,9 +104,13 @@ export default function ShootingCoachTab({
       return;
     }
     if (sceneUrl) URL.revokeObjectURL(sceneUrl);
+    if (croppedUrl) URL.revokeObjectURL(croppedUrl);
     const url = URL.createObjectURL(file);
     setSceneFile(file);
     setSceneUrl(url);
+    setCroppedUrl(null);
+    setCroppedFile(null);
+    setCropPreviewActive(false);
     setGuide(null);
     setPosePos({ x: 50, y: 54, scale: 0.9 });
 
@@ -149,6 +160,46 @@ export default function ShootingCoachTab({
       setGuide(result);
       setShowOverlay(true);
       setShowAllPoses(false);
+      setCropPreviewActive(false);
+
+      // Tạo sẵn ảnh mẫu đã crop & cân thẳng nếu AI có đề xuất khung crop
+      if (croppedUrl) URL.revokeObjectURL(croppedUrl);
+      setCroppedUrl(null);
+      setCroppedFile(null);
+
+      if (result.suggestedCrop) {
+        const sc = result.suggestedCrop;
+        const sx = (sc.xPercent / 100) * sceneImg.naturalWidth;
+        const sy = (sc.yPercent / 100) * sceneImg.naturalHeight;
+        const sw = Math.max(1, (sc.widthPercent / 100) * sceneImg.naturalWidth);
+        const sh = Math.max(1, (sc.heightPercent / 100) * sceneImg.naturalHeight);
+
+        const c = document.createElement('canvas');
+        c.width = Math.round(sw);
+        c.height = Math.round(sh);
+        const ctx = c.getContext('2d');
+        if (ctx) {
+          ctx.save();
+          if (Math.abs(sc.rotateDeg) >= 0.2) {
+            const rad = (sc.rotateDeg * Math.PI) / 180;
+            const zoomFix = 1 + Math.abs(Math.sin(rad)) * 0.25;
+            ctx.translate(c.width / 2, c.height / 2);
+            ctx.rotate(rad);
+            ctx.scale(zoomFix, zoomFix);
+            ctx.drawImage(sceneImg, sx, sy, sw, sh, -c.width / 2, -c.height / 2, c.width, c.height);
+          } else {
+            ctx.drawImage(sceneImg, sx, sy, sw, sh, 0, 0, c.width, c.height);
+          }
+          ctx.restore();
+
+          const blob = await new Promise<Blob | null>((r) => c.toBlob(r, 'image/jpeg', 0.92));
+          if (blob) {
+            const cFile = new File([blob], `goc-mau-${Date.now()}.jpg`, { type: 'image/jpeg' });
+            setCroppedFile(cFile);
+            setCroppedUrl(URL.createObjectURL(blob));
+          }
+        }
+      }
 
       if (result.poses.length > 0) {
         const first = result.poses[0];
@@ -167,9 +218,40 @@ export default function ShootingCoachTab({
     }
   };
 
+  const remapPoseForCrop = (
+    pos: { x: number; y: number; scale: number },
+    crop: SuggestedCrop,
+    toCropped: boolean,
+  ) => {
+    if (toCropped) {
+      return {
+        x: Math.min(88, Math.max(12, ((pos.x - crop.xPercent) / crop.widthPercent) * 100)),
+        y: Math.min(85, Math.max(15, ((pos.y - crop.yPercent) / crop.heightPercent) * 100)),
+        scale: Math.min(1.25, Math.max(0.55, pos.scale / (crop.heightPercent / 100))),
+      };
+    }
+    return {
+      x: Math.min(88, Math.max(12, crop.xPercent + (pos.x / 100) * crop.widthPercent)),
+      y: Math.min(85, Math.max(15, crop.yPercent + (pos.y / 100) * crop.heightPercent)),
+      scale: Math.min(1.25, Math.max(0.55, pos.scale * (crop.heightPercent / 100))),
+    };
+  };
+
+  const handleToggleCropPreview = () => {
+    if (!guide?.suggestedCrop || !croppedUrl) return;
+    const next = !cropPreviewActive;
+    setCropPreviewActive(next);
+    setPosePos((prev) => remapPoseForCrop(prev, guide.suggestedCrop!, next));
+  };
+
   const handleSelectAiPose = (p: PoseSuggestion) => {
     setSelectedPoseId(p.poseId);
-    setPosePos({ x: p.xPercent, y: p.yPercent, scale: p.scale });
+    const base = { x: p.xPercent, y: p.yPercent, scale: p.scale };
+    if (cropPreviewActive && guide?.suggestedCrop) {
+      setPosePos(remapPoseForCrop(base, guide.suggestedCrop, true));
+    } else {
+      setPosePos(base);
+    }
     setShowOverlay(true);
   };
 
@@ -293,7 +375,7 @@ export default function ShootingCoachTab({
             >
               <img
                 ref={imgRef}
-                src={sceneUrl}
+                src={cropPreviewActive && croppedUrl ? croppedUrl : sceneUrl}
                 alt="Bối cảnh chụp"
                 draggable={false}
                 onLoad={() => {
@@ -313,6 +395,27 @@ export default function ShootingCoachTab({
                 }}
                 className="h-full w-full rounded-xl object-contain"
               />
+
+              {/* Khung lưới 1/3 đề xuất crop góc chụp */}
+              {!cropPreviewActive && guide?.suggestedCrop && (
+                <div
+                  className="pointer-events-none absolute border-2 border-dashed border-amber-400/90 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]"
+                  style={{
+                    left: `${guide.suggestedCrop.xPercent}%`,
+                    top: `${guide.suggestedCrop.yPercent}%`,
+                    width: `${guide.suggestedCrop.widthPercent}%`,
+                    height: `${guide.suggestedCrop.heightPercent}%`,
+                  }}
+                >
+                  <div className="absolute inset-x-0 top-1/3 h-px bg-amber-300/40" />
+                  <div className="absolute inset-x-0 top-2/3 h-px bg-amber-300/40" />
+                  <div className="absolute inset-y-0 left-1/3 w-px bg-amber-300/40" />
+                  <div className="absolute inset-y-0 left-2/3 w-px bg-amber-300/40" />
+                  <span className="absolute left-1.5 top-1 rounded bg-amber-400 px-1.5 py-0.5 text-[9.5px] font-bold text-zinc-950">
+                    Góc đề xuất
+                  </span>
+                </div>
+              )}
 
               {/* Lớp khung dáng nét trắng giống Huawei AI Pose */}
               {showOverlay && (
@@ -365,6 +468,21 @@ export default function ShootingCoachTab({
 
             {/* Nút điều khiển nhanh góc dưới ảnh */}
             <div className="absolute bottom-3 right-3 z-10 flex items-center gap-1.5">
+              {croppedUrl && (
+                <button
+                  type="button"
+                  onClick={handleToggleCropPreview}
+                  className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold backdrop-blur-xs transition-colors ${
+                    cropPreviewActive
+                      ? 'border-amber-400 bg-amber-400 text-zinc-950'
+                      : 'border-white/20 bg-zinc-950/70 text-white hover:bg-zinc-900'
+                  }`}
+                  title="Xem thử ảnh sau khi crop & cân góc theo gợi ý AI"
+                >
+                  <Crop size={12} />
+                  <span>{cropPreviewActive ? 'Ảnh gốc' : 'Góc crop mẫu'}</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setShowOverlay((s) => !s)}
@@ -563,11 +681,17 @@ export default function ShootingCoachTab({
             {sceneFile && (
               <button
                 type="button"
-                onClick={() => onSendToColorTab(sceneFile)}
+                onClick={() =>
+                  onSendToColorTab(cropPreviewActive && croppedFile ? croppedFile : sceneFile)
+                }
                 className="flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white text-[13px] font-semibold text-zinc-800 shadow-2xs hover:bg-zinc-50 active:scale-[0.98] transition-all"
               >
                 <Palette size={15} className="text-amber-600" />
-                <span>Đưa ảnh này sang Chỉnh màu</span>
+                <span>
+                  {cropPreviewActive && croppedFile
+                    ? 'Đưa ảnh đã crop sang Chỉnh màu'
+                    : 'Đưa ảnh này sang Chỉnh màu'}
+                </span>
               </button>
             )}
           </div>

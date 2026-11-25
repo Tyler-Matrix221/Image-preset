@@ -652,6 +652,14 @@ export interface PoseSuggestion {
   scale: number;
 }
 
+export interface SuggestedCrop {
+  xPercent: number;
+  yPercent: number;
+  widthPercent: number;
+  heightPercent: number;
+  rotateDeg: number;
+}
+
 export interface ShootingGuideResult {
   lightingSummary: string;
   angleAdvice: string;
@@ -663,6 +671,7 @@ export interface ShootingGuideResult {
     ev: string;
   };
   poses: PoseSuggestion[];
+  suggestedCrop?: SuggestedCrop;
 }
 
 export interface AnalyzeSceneOptions {
@@ -721,6 +730,12 @@ Analyze Image 1 carefully and return practical, easy-to-follow guidance in VIETN
    - "xPercent": number 18..82 (horizontal % of Image 1 width where the center of the person should stand; 0=left edge of Image 1, 100=right edge of Image 1). CRITICAL: If "tip" mentions standing next to an object (e.g. a chair, table, railing, doorway), place "xPercent" and "yPercent" RIGHT NEXT TO that object in Image 1!
    - "yPercent": number 28..75 (vertical % of Image 1 height for the center of the person; 0=top, 100=bottom; feet should land naturally on the ground/floor in Image 1!)
    - "scale": number 0.55..1.2 (size relative to Image 1 height so the person matches realistic perspective in the scene)
+5. "suggestedCrop": Propose a cleaner framing crop box on Image 1 so the photographer can see the ideal composition (removing messy edges, zooming closer to the main background/chair/anchor, placing key elements on the rule-of-thirds):
+   - "xPercent": number 0..45 (left edge of crop box as % of Image 1 width)
+   - "yPercent": number 0..45 (top edge of crop box as % of Image 1 height)
+   - "widthPercent": number 45..100 (width of crop box as % of Image 1 width; xPercent + widthPercent <= 100)
+   - "heightPercent": number 45..100 (height of crop box as % of Image 1 height; yPercent + heightPercent <= 100)
+   - "rotateDeg": number -5..5 (small tilt correction in degrees if the horizon/verticals are slightly crooked, 0 if straight)
 
 ALLOWED POSE IDS:
 ${poseCatalog}
@@ -798,6 +813,25 @@ CRITICAL RULES:
     });
   }
 
+  let suggestedCrop: SuggestedCrop | undefined;
+  const sc = parsed?.suggestedCrop;
+  if (sc && typeof sc === 'object') {
+    const xP = Math.min(45, Math.max(0, Number(sc.xPercent) || 0));
+    const yP = Math.min(45, Math.max(0, Number(sc.yPercent) || 0));
+    const wP = Math.min(100 - xP, Math.max(45, Number(sc.widthPercent) || 100 - xP));
+    const hP = Math.min(100 - yP, Math.max(45, Number(sc.heightPercent) || 100 - yP));
+    const rot = Math.min(6, Math.max(-6, Number(sc.rotateDeg) || 0));
+    if (wP < 98 || hP < 98 || Math.abs(rot) >= 0.5) {
+      suggestedCrop = {
+        xPercent: xP,
+        yPercent: yP,
+        widthPercent: wP,
+        heightPercent: hP,
+        rotateDeg: rot,
+      };
+    }
+  }
+
   const cs = parsed?.cameraSettings || {};
   return {
     lightingSummary:
@@ -816,5 +850,6 @@ CRITICAL RULES:
       ev: String(cs.ev || '0 EV'),
     },
     poses,
+    suggestedCrop,
   };
 }
