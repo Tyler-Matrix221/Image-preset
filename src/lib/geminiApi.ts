@@ -650,6 +650,7 @@ export interface PoseSuggestion {
   xPercent: number;
   yPercent: number;
   scale: number;
+  flipHorizontal?: boolean;
 }
 
 export interface SuggestedCrop {
@@ -727,9 +728,10 @@ Analyze Image 1 carefully and return practical, easy-to-follow guidance in VIETN
 4. "poses": Pick 3 to 4 best poses from the ALLOWED POSE IDS below for this scene. For each pose provide:
    - "poseId": exact id from the list
    - "tip": 1 short, natural Vietnamese instruction for the model. CRITICAL RULE FOR "tip": Your "tip" MUST accurately match the EXACT body/hand/leg posture of the chosen "poseId" description below! Do NOT invent hand, prop, sitting, or leg actions that contradict that pose's drawing.
-   - "xPercent": number 18..82 (horizontal % of Image 1 width where the center of the person should stand; 0=left edge of Image 1, 100=right edge of Image 1). CRITICAL: If "tip" mentions standing next to an object (e.g. a chair, table, railing, doorway), place "xPercent" and "yPercent" RIGHT NEXT TO that object in Image 1!
-   - "yPercent": number 28..75 (vertical % of Image 1 height for the center of the person; 0=top, 100=bottom; feet should land naturally on the ground/floor in Image 1!)
-   - "scale": number 0.55..1.2 (size relative to Image 1 height so the person matches realistic perspective in the scene)
+   - "xPercent": number 18..82 (horizontal % of Image 1 width where the center of the person should stand; 0=left edge of Image 1, 100=right edge of Image 1). CRITICAL: If "tip" mentions standing next to a chair/table/railing, place "xPercent" BESIDE that object (never directly on top of the chair!), on open floor space.
+   - "yPercent": number 42..75 (vertical % of Image 1 height for the center of the person; keep feet grounded naturally on the floor/ground, NOT floating above furniture!).
+   - "scale": number 0.55..1.15 (realistic human height relative to Image 1 height)
+   - "flipHorizontal": boolean. Follow the photography Lead Room rule: if the person stands on the left side (xPercent < 50), orient them facing/leaning toward the center-right background; if on the right side (xPercent > 50), orient them toward center-left. Set true to mirror the SVG drawing horizontally when needed so the model faces toward the open frame center.
 5. "suggestedCrop": Propose a cleaner framing crop box on Image 1 so the photographer can see the ideal composition (removing messy edges, zooming closer to the main background/chair/anchor, placing key elements on the rule-of-thirds):
    - "xPercent": number 0..45 (left edge of crop box as % of Image 1 width)
    - "yPercent": number 0..45 (top edge of crop box as % of Image 1 height)
@@ -801,6 +803,7 @@ CRITICAL RULES:
       xPercent: Math.min(82, Math.max(18, Number(item.xPercent) || 50)),
       yPercent: Math.min(78, Math.max(25, Number(item.yPercent) || 54)),
       scale: Math.min(1.3, Math.max(0.55, Number(item.scale) || 0.9)),
+      flipHorizontal: Boolean(item.flipHorizontal),
     }));
 
   if (poses.length === 0) {

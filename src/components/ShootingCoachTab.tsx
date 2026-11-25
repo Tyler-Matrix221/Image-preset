@@ -4,6 +4,7 @@ import {
   Crop,
   Eye,
   EyeOff,
+  FlipHorizontal2,
   ImagePlus,
   Loader2,
   Palette,
@@ -60,6 +61,7 @@ export default function ShootingCoachTab({
   // Khung dáng đang chọn & vị trí kéo thả trên ảnh
   const [selectedPoseId, setSelectedPoseId] = useState<string>(POSE_TEMPLATES[0].id);
   const [posePos, setPosePos] = useState({ x: 50, y: 54, scale: 0.9 });
+  const [flipPose, setFlipPose] = useState(false);
   const [showOverlay, setShowOverlay] = useState(true);
   const [showAllPoses, setShowAllPoses] = useState(false);
 
@@ -205,6 +207,7 @@ export default function ShootingCoachTab({
         const first = result.poses[0];
         setSelectedPoseId(first.poseId);
         setPosePos({ x: first.xPercent, y: first.yPercent, scale: first.scale });
+        setFlipPose(Boolean(first.flipHorizontal));
       }
     } catch (err) {
       onQuotaUpdated(getDemoQuota());
@@ -246,6 +249,7 @@ export default function ShootingCoachTab({
 
   const handleSelectAiPose = (p: PoseSuggestion) => {
     setSelectedPoseId(p.poseId);
+    setFlipPose(Boolean(p.flipHorizontal));
     const base = { x: p.xPercent, y: p.yPercent, scale: p.scale };
     if (cropPreviewActive && guide?.suggestedCrop) {
       setPosePos(remapPoseForCrop(base, guide.suggestedCrop, true));
@@ -430,7 +434,8 @@ export default function ShootingCoachTab({
                 >
                   <svg
                     viewBox="0 0 200 320"
-                    className="h-full w-full drop-shadow-[0_2px_6px_rgba(0,0,0,0.85)]"
+                    className="h-full w-full drop-shadow-[0_2px_6px_rgba(0,0,0,0.85)] transition-transform duration-150"
+                    style={flipPose ? { transform: 'scaleX(-1)' } : undefined}
                     fill="none"
                   >
                     {activeTemplate.head && (
@@ -481,6 +486,17 @@ export default function ShootingCoachTab({
                 >
                   <Crop size={12} />
                   <span>{cropPreviewActive ? 'Ảnh gốc' : 'Góc crop mẫu'}</span>
+                </button>
+              )}
+              {showOverlay && (
+                <button
+                  type="button"
+                  onClick={() => setFlipPose((f) => !f)}
+                  className="inline-flex items-center gap-1 rounded-full border border-white/20 bg-zinc-950/70 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur-xs hover:bg-zinc-900"
+                  title="Đảo hướng xoay người trái/phải vào tâm khung hình"
+                >
+                  <FlipHorizontal2 size={12} />
+                  <span>Lật hướng</span>
                 </button>
               )}
               <button

@@ -521,20 +521,8 @@ export default function App() {
           </div>
         </div>
 
-        {/* Thanh chuyển nhanh giữa 2 chế độ: Chỉnh màu (Hậu kỳ) & Canh chụp (Tiền kỳ) */}
+        {/* Thanh chuyển nhanh giữa 2 chế độ: Canh chụp (Tiền kỳ) -> Chỉnh màu (Hậu kỳ) */}
         <div className="flex rounded-xl bg-zinc-200/70 p-0.5 text-[12px] font-medium">
-          <button
-            type="button"
-            onClick={() => setActiveMode('color')}
-            className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 transition-all ${
-              activeMode === 'color'
-                ? 'bg-white font-semibold text-zinc-900 shadow-2xs'
-                : 'text-zinc-600 hover:text-zinc-900'
-            }`}
-          >
-            <Palette size={14} />
-            <span>Chỉnh màu</span>
-          </button>
           <button
             type="button"
             onClick={() => setActiveMode('shoot')}
@@ -546,6 +534,18 @@ export default function App() {
           >
             <Camera size={14} />
             <span>Canh chụp & Tạo dáng</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveMode('color')}
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 transition-all ${
+              activeMode === 'color'
+                ? 'bg-white font-semibold text-zinc-900 shadow-2xs'
+                : 'text-zinc-600 hover:text-zinc-900'
+            }`}
+          >
+            <Palette size={14} />
+            <span>Chỉnh màu</span>
           </button>
         </div>
       </header>
