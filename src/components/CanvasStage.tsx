@@ -27,7 +27,7 @@ export default function CanvasStage({
   };
 
   return (
-    <div className="relative flex min-h-0 w-full flex-1 items-center justify-center bg-zinc-200/50 px-3 py-2">
+    <div className="relative flex min-h-[180px] w-full flex-1 items-center justify-center overflow-hidden bg-zinc-200/50 px-3 py-2">
       <div
         ref={wrapperRef}
         onPointerDown={(e) => {
@@ -46,7 +46,7 @@ export default function CanvasStage({
         onPointerCancel={() => {
           draggingRef.current = false;
         }}
-        className={`relative inline-flex max-h-full max-w-full items-center justify-center select-none ${
+        className={`relative flex h-full w-full items-center justify-center overflow-hidden select-none ${
           compareMode && !showOriginal ? 'touch-none cursor-ew-resize' : ''
         }`}
       >

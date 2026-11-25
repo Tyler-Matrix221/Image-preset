@@ -523,7 +523,7 @@ export default function App() {
             showOriginal={showOriginal}
             originalUrl={originalPreviewUrl}
           />
-          <div className="shrink-0 space-y-3 border-t border-zinc-200/80 bg-white/95 pt-3 shadow-[0_-4px_24px_rgba(0,0,0,0.04)]">
+          <div className="relative z-10 max-h-[56dvh] shrink-0 space-y-3 overflow-y-auto overscroll-contain border-t border-zinc-200/80 bg-white/95 pt-3 shadow-[0_-4px_24px_rgba(0,0,0,0.04)]">
             <div className="px-4">
               <PresetStrip
                 presets={presets}
