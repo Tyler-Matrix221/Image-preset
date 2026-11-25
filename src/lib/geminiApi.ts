@@ -718,9 +718,9 @@ Analyze Image 1 carefully and return practical, easy-to-follow guidance in VIETN
 4. "poses": Pick 3 to 4 best poses from the ALLOWED POSE IDS below for this scene. For each pose provide:
    - "poseId": exact id from the list
    - "tip": 1 short, natural Vietnamese instruction for the model. CRITICAL RULE FOR "tip": Your "tip" MUST accurately match the EXACT body/hand/leg posture of the chosen "poseId" description below! Do NOT invent hand, prop, sitting, or leg actions that contradict that pose's drawing.
-   - "xPercent": number 20..80 (horizontal center where the model should stand in Image 1)
-   - "yPercent": number 30..75 (vertical center in Image 1)
-   - "scale": number 0.6..1.25 (size relative to frame height)
+   - "xPercent": number 18..82 (horizontal % of Image 1 width where the center of the person should stand; 0=left edge of Image 1, 100=right edge of Image 1). CRITICAL: If "tip" mentions standing next to an object (e.g. a chair, table, railing, doorway), place "xPercent" and "yPercent" RIGHT NEXT TO that object in Image 1!
+   - "yPercent": number 28..75 (vertical % of Image 1 height for the center of the person; 0=top, 100=bottom; feet should land naturally on the ground/floor in Image 1!)
+   - "scale": number 0.55..1.2 (size relative to Image 1 height so the person matches realistic perspective in the scene)
 
 ALLOWED POSE IDS:
 ${poseCatalog}

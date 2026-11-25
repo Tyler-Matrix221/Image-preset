@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Camera,
   Eye,
@@ -59,8 +59,37 @@ export default function ShootingCoachTab({
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const refInputRef = useRef<HTMLInputElement>(null);
+  const outerStageRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
   const draggingPoseRef = useRef(false);
+  const [imgBoxSize, setImgBoxSize] = useState<{ width: number; height: number } | null>(null);
+
+  // Đồng bộ kích thước stageRef khớp chính xác 100% với khung ảnh thật (không tính viền đen)
+  useEffect(() => {
+    const updateBox = () => {
+      const outer = outerStageRef.current;
+      const img = imgRef.current;
+      if (!outer || !img || !img.naturalWidth || !img.naturalHeight) return;
+      const padX = 24;
+      const padY = 16;
+      const availW = Math.max(100, outer.clientWidth - padX);
+      const availH = Math.max(100, outer.clientHeight - padY);
+      const ratio = img.naturalWidth / img.naturalHeight;
+      let w = availW;
+      let h = w / ratio;
+      if (h > availH) {
+        h = availH;
+        w = h * ratio;
+      }
+      setImgBoxSize({ width: Math.round(w), height: Math.round(h) });
+    };
+
+    updateBox();
+    const ro = new ResizeObserver(updateBox);
+    if (outerStageRef.current) ro.observe(outerStageRef.current);
+    return () => ro.disconnect();
+  }, [sceneUrl]);
 
   const handleSelectScene = async (file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -235,9 +264,13 @@ export default function ShootingCoachTab({
       ) : (
         <>
           {/* Khung hiển thị ảnh bối cảnh + Overlay khung dáng SVG nét trắng */}
-          <div className="relative flex min-h-[190px] w-full flex-1 items-center justify-center overflow-hidden bg-zinc-900 px-3 py-2">
+          <div
+            ref={outerStageRef}
+            className="relative flex min-h-[190px] w-full flex-1 items-center justify-center overflow-hidden bg-zinc-900 px-3 py-2"
+          >
             <div
               ref={stageRef}
+              style={imgBoxSize ? { width: imgBoxSize.width, height: imgBoxSize.height } : undefined}
               onPointerDown={(e) => {
                 if (!showOverlay) return;
                 draggingPoseRef.current = true;
@@ -254,15 +287,31 @@ export default function ShootingCoachTab({
               onPointerCancel={() => {
                 draggingPoseRef.current = false;
               }}
-              className={`relative inline-flex h-full w-full items-center justify-center overflow-hidden select-none ${
-                showOverlay ? 'touch-none cursor-move' : ''
-              }`}
+              className={`relative flex items-center justify-center overflow-hidden rounded-xl select-none ${
+                imgBoxSize ? '' : 'max-h-full max-w-full'
+              } ${showOverlay ? 'touch-none cursor-move' : ''}`}
             >
               <img
+                ref={imgRef}
                 src={sceneUrl}
                 alt="Bối cảnh chụp"
                 draggable={false}
-                className="max-h-full max-w-full rounded-xl object-contain"
+                onLoad={() => {
+                  const outer = outerStageRef.current;
+                  const img = imgRef.current;
+                  if (!outer || !img || !img.naturalWidth || !img.naturalHeight) return;
+                  const availW = Math.max(100, outer.clientWidth - 24);
+                  const availH = Math.max(100, outer.clientHeight - 16);
+                  const ratio = img.naturalWidth / img.naturalHeight;
+                  let w = availW;
+                  let h = w / ratio;
+                  if (h > availH) {
+                    h = availH;
+                    w = h * ratio;
+                  }
+                  setImgBoxSize({ width: Math.round(w), height: Math.round(h) });
+                }}
+                className="h-full w-full rounded-xl object-contain"
               />
 
               {/* Lớp khung dáng nét trắng giống Huawei AI Pose */}
