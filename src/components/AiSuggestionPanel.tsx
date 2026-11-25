@@ -1,5 +1,7 @@
 import { useState, useMemo, useRef } from 'react';
 import {
+  ChevronDown,
+  ChevronUp,
   Flame,
   Image as ImageIcon,
   Layers,
@@ -109,33 +111,40 @@ export default function AiSuggestionPanel({
           }
         }}
         aria-expanded={open}
-        className="flex w-full items-center justify-between px-4 py-3 cursor-pointer hover:bg-zinc-50/60 active:bg-zinc-100/50 transition-colors"
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 cursor-pointer hover:bg-zinc-50/60 active:bg-zinc-100/50 transition-colors"
       >
-        <span className="flex items-center gap-2.5 text-[14px] font-semibold text-zinc-900">
-          <Sparkles size={17} className="text-amber-500" />
-          <span>AI gợi ý chỉnh màu</span>
-          <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-900 border border-amber-500/20">
-            Gemini Flash
-          </span>
-          {!hasApiKey && hasDemoProxy() && (
-            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 border border-emerald-200">
-              {demoQuota ? `Miễn phí ${demoQuota.remaining}/${demoQuota.limit}` : 'Dùng thử miễn phí'}
+        <div className="flex min-w-0 flex-1 items-start gap-2.5">
+          <Sparkles size={17} className="mt-0.5 shrink-0 text-amber-500" />
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
+            <span className="whitespace-nowrap text-[14px] font-semibold text-zinc-900">
+              AI gợi ý chỉnh màu
             </span>
-          )}
-        </span>
-        <span className="text-[12px] font-medium text-zinc-500 hover:text-amber-700">
-          {open ? 'Thu gọn' : 'Mở gợi ý'}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="whitespace-nowrap rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-900 border border-amber-500/20">
+                Gemini Flash
+              </span>
+              {!hasApiKey && hasDemoProxy() && (
+                <span className="whitespace-nowrap rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 border border-emerald-200">
+                  {demoQuota ? `Miễn phí ${demoQuota.remaining}/${demoQuota.limit}` : 'Dùng thử miễn phí'}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+        <span className="flex shrink-0 items-center gap-1 text-[12px] font-medium text-zinc-500 hover:text-amber-700 whitespace-nowrap">
+          <span>{open ? 'Thu gọn' : 'Mở gợi ý'}</span>
+          {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
         </span>
       </div>
 
       {open && (
         <div className="border-t border-zinc-200/80 bg-zinc-50/40 p-4 space-y-3.5">
           {/* Thanh chuyển đổi Tab: TikTok Hot Trend vs Khớp màu từ ảnh */}
-          <div className="flex rounded-xl bg-zinc-200/70 p-1 text-[12px] font-medium">
+          <div className="flex rounded-xl bg-zinc-200/70 p-1 text-[11.5px] sm:text-[12px] font-medium">
             <button
               type="button"
               onClick={() => setActiveTab('trends')}
-              className={`flex-1 rounded-lg py-1.5 transition-all text-center ${
+              className={`flex-1 whitespace-nowrap rounded-lg px-2 py-1.5 transition-all text-center ${
                 activeTab === 'trends'
                   ? 'bg-white font-semibold text-zinc-900 shadow-2xs'
                   : 'text-zinc-600 hover:text-zinc-900'
@@ -146,13 +155,13 @@ export default function AiSuggestionPanel({
             <button
               type="button"
               onClick={() => setActiveTab('match')}
-              className={`flex-1 rounded-lg py-1.5 transition-all text-center ${
+              className={`flex-1 whitespace-nowrap rounded-lg px-2 py-1.5 transition-all text-center ${
                 activeTab === 'match'
                   ? 'bg-white font-semibold text-rose-900 shadow-2xs'
                   : 'text-zinc-600 hover:text-zinc-900'
               }`}
             >
-              🎨 Khớp màu từ ảnh mẫu (Color Match)
+              🎨 Khớp màu ảnh mẫu
             </button>
           </div>
 
