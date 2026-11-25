@@ -196,7 +196,7 @@ const CANDIDATE_MODELS = [
  * Gọi Gemini REST API với cơ chế tự động chuyển model dự phòng khi model gặp sự cố.
  */
 async function callGeminiFlash(payload: any, apiKey: string): Promise<string> {
-  const PER_MODEL_TIMEOUT_MS = 15000;
+  const PER_MODEL_TIMEOUT_MS = 10000;
   const useProxy = !apiKey && Boolean(DEMO_PROXY_URL);
   if (!apiKey && !useProxy) {
     throw new Error('Vui lòng nhập Google Gemini API key trong Cài đặt trước khi dùng tính năng AI.');
@@ -205,8 +205,13 @@ async function callGeminiFlash(payload: any, apiKey: string): Promise<string> {
   let response: Response | null = null;
   let lastErrorDetail = '';
   let lastStatus = 0;
+  let overloadFailures = 0;
 
   for (const model of CANDIDATE_MODELS) {
+    if (overloadFailures >= 2 && DEMO_PROXY_URL) {
+      break;
+    }
+
     const endpoint = useProxy
       ? DEMO_PROXY_URL
       : `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(
@@ -228,11 +233,13 @@ async function callGeminiFlash(payload: any, apiKey: string): Promise<string> {
     } catch (netErr: any) {
       clearTimeout(timeoutTimer);
       if (netErr?.name === 'AbortError') {
-        console.warn(`[Gemini API] Model ${model} quá 15s. Tự động chuyển model kế tiếp...`);
+        console.warn(`[Gemini API] Model ${model} quá 10s. Tự động chuyển model kế tiếp...`);
         lastErrorDetail = 'Quá thời gian phản hồi.';
+        overloadFailures += 1;
         continue;
       }
       lastErrorDetail = 'Không thể kết nối tới Google Gemini API (Lỗi mạng).';
+      overloadFailures += 1;
       continue;
     } finally {
       clearTimeout(timeoutTimer);
@@ -282,7 +289,55 @@ async function callGeminiFlash(payload: any, apiKey: string): Promise<string> {
       );
     }
 
+    if (
+      response.status === 503 ||
+      lastErrorDetail.toLowerCase().includes('demand') ||
+      lastErrorDetail.toLowerCase().includes('overloaded')
+    ) {
+      overloadFailures += 1;
+    }
+
     console.warn(`[Gemini API] Model ${model} phản hồi ${response.status}: ${lastErrorDetail}. Đang thử model tiếp theo...`);
+  }
+
+  // Nếu Google Gemini bị 503/quá tải >= 2 lần, tự động chuyển sang Vision fallback trên api.xah.io qua Worker
+  if ((!response || !response.ok) && overloadFailures >= 2 && DEMO_PROXY_URL) {
+    console.warn('[Gemini API] Google quá tải >= 2 lần, đang chuyển sang Vision fallback (api.xah.io)...');
+    const fbController = new AbortController();
+    const fbTimer = setTimeout(() => fbController.abort(), 25000);
+    try {
+      const fbRes = await fetch(`${DEMO_PROXY_URL}/vision-fallback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payload }),
+        signal: fbController.signal,
+      });
+      clearTimeout(fbTimer);
+
+      const limitHeader = Number(fbRes.headers.get('X-RateLimit-Limit'));
+      const remHeader = Number(fbRes.headers.get('X-RateLimit-Remaining'));
+      if (Number.isFinite(limitHeader) && Number.isFinite(remHeader) && limitHeader > 0) {
+        cachedDemoQuota = { limit: limitHeader, remaining: remHeader };
+      }
+
+      if (fbRes.status === 429) {
+        const errJson = await fbRes.json().catch(() => ({}));
+        if (errJson?.code === 'DAILY_LIMIT_REACHED') {
+          cachedDemoQuota = { limit: cachedDemoQuota?.limit || 5, remaining: 0 };
+          throw new DemoLimitReachedError(
+            errJson.error ||
+              'Bạn đã dùng hết lượt AI miễn phí hôm nay. Hãy nhập Gemini API Key cá nhân hoặc quay lại vào ngày mai.',
+          );
+        }
+      }
+
+      if (fbRes.ok) {
+        response = fbRes;
+      }
+    } catch (fbErr) {
+      clearTimeout(fbTimer);
+      if (fbErr instanceof DemoLimitReachedError) throw fbErr;
+    }
   }
 
   if (!response || !response.ok) {

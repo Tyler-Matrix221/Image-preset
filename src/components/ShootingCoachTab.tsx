@@ -845,27 +845,25 @@ export default function ShootingCoachTab({
               )}
             </div>
 
-            {/* Tạo ảnh người mẫu thật minh họa tư thế (gpt-image-1.5 qua Proxy) */}
-            {guide && (
-              <button
-                type="button"
-                onClick={handleGenerateRealPose}
-                disabled={isGeneratingPoseImg}
-                className="flex h-9 w-full items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50/70 px-3 text-[12px] font-semibold text-rose-900 hover:bg-rose-100/70 disabled:opacity-50 transition-all"
-              >
-                {isGeneratingPoseImg ? (
-                  <>
-                    <Loader2 size={14} className="animate-spin" />
-                    <span>Đang tạo ảnh người thật minh họa...</span>
-                  </>
-                ) : (
-                  <>
-                    <UserCheck size={14} className="text-rose-600" />
-                    <span>Tạo ảnh người thật minh họa tư thế</span>
-                  </>
-                )}
-              </button>
-            )}
+            {/* Tạo ảnh người mẫu thật minh họa tư thế (luôn sẵn sàng ngay khi tải ảnh lên) */}
+            <button
+              type="button"
+              onClick={handleGenerateRealPose}
+              disabled={isGeneratingPoseImg}
+              className="flex h-9 w-full items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50/70 px-3 text-[12px] font-semibold text-rose-900 hover:bg-rose-100/70 disabled:opacity-50 transition-all"
+            >
+              {isGeneratingPoseImg ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" />
+                  <span>Đang tạo ảnh người thật minh họa...</span>
+                </>
+              ) : (
+                <>
+                  <UserCheck size={14} className="text-rose-600" />
+                  <span>Tạo ảnh người thật minh họa tư thế</span>
+                </>
+              )}
+            </button>
 
             {/* Hiển thị EXIF hiện tại (nếu đọc được) */}
             {sceneExif && (
