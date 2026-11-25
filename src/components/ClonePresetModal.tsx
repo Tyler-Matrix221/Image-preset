@@ -1,6 +1,10 @@
 import { useState, useRef } from 'react';
 import { Camera, Image as ImageIcon, Loader2, Sparkles, Upload, X } from 'lucide-react';
-import { clonePresetFromReferenceImage } from '@/lib/geminiApi';
+import {
+  clonePresetFromReferenceImage,
+  DemoLimitReachedError,
+  hasAiAccess,
+} from '@/lib/geminiApi';
 import type { Preset } from '@/rules/presets';
 
 interface ClonePresetModalProps {
@@ -10,6 +14,7 @@ interface ClonePresetModalProps {
   onError: (msg: string) => void;
   hasApiKey: boolean;
   onOpenSettings: () => void;
+  onDemoLimitReached?: (msg: string) => void;
 }
 
 export default function ClonePresetModal({
@@ -19,6 +24,7 @@ export default function ClonePresetModal({
   onError,
   hasApiKey,
   onOpenSettings,
+  onDemoLimitReached,
 }: ClonePresetModalProps) {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -67,7 +73,7 @@ export default function ClonePresetModal({
       return;
     }
 
-    if (!hasApiKey) {
+    if (!hasApiKey && !hasAiAccess()) {
       onOpenSettings();
       return;
     }
@@ -96,6 +102,11 @@ export default function ClonePresetModal({
       onPresetCreated(newPreset);
       handleClose();
     } catch (err) {
+      if (err instanceof DemoLimitReachedError) {
+        handleClose();
+        onDemoLimitReached?.(err.message);
+        return;
+      }
       onError(err instanceof Error ? err.message : 'Lỗi khi phân tích màu ảnh mẫu');
     } finally {
       setIsLoading(false);

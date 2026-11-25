@@ -11,6 +11,54 @@ import {
 
 export const GEMINI_STORAGE_KEY = 'gemini_api_key';
 
+/**
+ * URL của Cloudflare Worker Proxy dùng chung cho chế độ dùng thử miễn phí.
+ * Được cấu hình qua biến môi trường VITE_DEMO_PROXY_URL khi build.
+ */
+export const DEMO_PROXY_URL = (import.meta.env.VITE_DEMO_PROXY_URL || '').trim().replace(/\/+$/, '');
+
+export interface DemoQuota {
+  limit: number;
+  remaining: number;
+}
+
+let cachedDemoQuota: DemoQuota | null = null;
+
+export class DemoLimitReachedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DemoLimitReachedError';
+  }
+}
+
+export function hasDemoProxy(): boolean {
+  return Boolean(DEMO_PROXY_URL);
+}
+
+export function hasAiAccess(): boolean {
+  return Boolean(getStoredApiKey() || DEMO_PROXY_URL);
+}
+
+export function getDemoQuota(): DemoQuota | null {
+  return cachedDemoQuota;
+}
+
+export async function fetchDemoQuota(): Promise<DemoQuota | null> {
+  if (!DEMO_PROXY_URL) return null;
+  try {
+    const res = await fetch(`${DEMO_PROXY_URL}/quota`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (typeof data?.limit === 'number' && typeof data?.remaining === 'number') {
+      cachedDemoQuota = { limit: data.limit, remaining: data.remaining };
+      return cachedDemoQuota;
+    }
+  } catch {
+    // ignore network error
+  }
+  return cachedDemoQuota;
+}
+
 export function getStoredApiKey(): string {
   try {
     return localStorage.getItem(GEMINI_STORAGE_KEY)?.trim() || '';
@@ -147,14 +195,21 @@ const CANDIDATE_MODELS = [
  */
 async function callGeminiFlash(payload: any, apiKey: string): Promise<string> {
   const PER_MODEL_TIMEOUT_MS = 15000;
+  const useProxy = !apiKey && Boolean(DEMO_PROXY_URL);
+  if (!apiKey && !useProxy) {
+    throw new Error('Vui lòng nhập Google Gemini API key trong Cài đặt trước khi dùng tính năng AI.');
+  }
+
   let response: Response | null = null;
   let lastErrorDetail = '';
   let lastStatus = 0;
 
   for (const model of CANDIDATE_MODELS) {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(
-      apiKey,
-    )}`;
+    const endpoint = useProxy
+      ? DEMO_PROXY_URL
+      : `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(
+          apiKey,
+        )}`;
 
     const controller = new AbortController();
     const timeoutTimer = setTimeout(() => controller.abort(), PER_MODEL_TIMEOUT_MS);
@@ -165,7 +220,7 @@ async function callGeminiFlash(payload: any, apiKey: string): Promise<string> {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(useProxy ? { model, payload } : payload),
         signal: controller.signal,
       });
     } catch (netErr: any) {
@@ -181,16 +236,41 @@ async function callGeminiFlash(payload: any, apiKey: string): Promise<string> {
       clearTimeout(timeoutTimer);
     }
 
+    if (useProxy) {
+      const limitHeader = Number(response.headers.get('X-RateLimit-Limit'));
+      const remHeader = Number(response.headers.get('X-RateLimit-Remaining'));
+      if (Number.isFinite(limitHeader) && Number.isFinite(remHeader) && limitHeader > 0) {
+        cachedDemoQuota = { limit: limitHeader, remaining: remHeader };
+      }
+    }
+
     if (response.ok) {
       break;
     }
 
     lastStatus = response.status;
+    let errCode = '';
     try {
       const errJson = await response.json();
-      lastErrorDetail = errJson?.error?.message || errJson?.[0]?.error?.message || response.statusText;
+      errCode = errJson?.code || '';
+      lastErrorDetail =
+        errJson?.error?.message ||
+        (typeof errJson?.error === 'string' ? errJson.error : '') ||
+        errJson?.[0]?.error?.message ||
+        response.statusText;
     } catch {
       lastErrorDetail = response.statusText;
+    }
+
+    if (useProxy && response.status === 429 && errCode === 'DAILY_LIMIT_REACHED') {
+      cachedDemoQuota = {
+        limit: cachedDemoQuota?.limit || 5,
+        remaining: 0,
+      };
+      throw new DemoLimitReachedError(
+        lastErrorDetail ||
+          'Bạn đã dùng hết lượt AI miễn phí hôm nay. Hãy nhập Gemini API Key cá nhân để tiếp tục hoặc quay lại vào ngày mai.',
+      );
     }
 
     // Nếu key sai hoặc không có quyền (400, 401, 403), dừng ngay
@@ -314,7 +394,7 @@ export async function requestAiColorSuggestion({
   apiKey,
 }: RequestAiSuggestionOptions): Promise<EditParams> {
   const key = (apiKey || getStoredApiKey()).trim();
-  if (!key) {
+  if (!key && !DEMO_PROXY_URL) {
     throw new Error('Vui lòng nhập Google Gemini API key trong Cài đặt trước khi dùng tính năng này.');
   }
 
@@ -396,7 +476,7 @@ export async function clonePresetFromReferenceImage({
   apiKey,
 }: ClonePresetOptions): Promise<{ params: EditParams; name: string }> {
   const key = (apiKey || getStoredApiKey()).trim();
-  if (!key) {
+  if (!key && !DEMO_PROXY_URL) {
     throw new Error('Vui lòng nhập Google Gemini API key trong Cài đặt trước khi dùng tính năng này.');
   }
 
@@ -483,7 +563,7 @@ export async function matchColorsBetweenImages({
   apiKey,
 }: MatchColorsOptions): Promise<EditParams> {
   const key = (apiKey || getStoredApiKey()).trim();
-  if (!key) {
+  if (!key && !DEMO_PROXY_URL) {
     throw new Error('Vui lòng nhập Google Gemini API key trong Cài đặt trước khi dùng tính năng này.');
   }
 

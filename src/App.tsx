@@ -27,9 +27,15 @@ import {
 import { PRESETS, applyPresetGuards, type Preset } from '@/rules/presets';
 import type { CubeLutData } from '@/rules/cubeImport';
 import {
+  DemoLimitReachedError,
+  fetchDemoQuota,
+  getDemoQuota,
   getStoredApiKey,
-  requestAiColorSuggestion,
+  hasAiAccess,
+  hasDemoProxy,
   matchColorsBetweenImages,
+  requestAiColorSuggestion,
+  type DemoQuota,
 } from '@/lib/geminiApi';
 
 const PREVIEW_MAX_SIDE = 2048;
@@ -56,7 +62,17 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [cloneModalOpen, setCloneModalOpen] = useState(false);
   const [hasApiKey, setHasApiKey] = useState(() => Boolean(getStoredApiKey()));
+  const [demoQuota, setDemoQuota] = useState<DemoQuota | null>(() => getDemoQuota());
+  const [limitNotice, setLimitNotice] = useState<string | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
+
+  useEffect(() => {
+    if (!hasApiKey && hasDemoProxy()) {
+      fetchDemoQuota().then((q) => {
+        if (q) setDemoQuota(q);
+      });
+    }
+  }, [hasApiKey]);
 
   const activePreset = presets.find((p) => p.id === activePresetId);
   const isLutActive = Boolean(activePreset?.lut);
@@ -174,7 +190,7 @@ export default function App() {
       if (!img) return;
 
       const key = getStoredApiKey();
-      if (!key) {
+      if (!key && !hasAiAccess()) {
         setError('Vui lòng vào Cài đặt để nhập Gemini API key trước khi sử dụng.');
         setSettingsOpen(true);
         return;
@@ -189,6 +205,7 @@ export default function App() {
           stylePrompt,
           apiKey: key,
         });
+        setDemoQuota(getDemoQuota());
 
         const aiPreset: Preset = {
           id: `ai-${Date.now()}`,
@@ -212,6 +229,12 @@ export default function App() {
         setActivePresetId(aiPreset.id);
         setIntensity(1);
       } catch (err) {
+        setDemoQuota(getDemoQuota());
+        if (err instanceof DemoLimitReachedError) {
+          setLimitNotice(err.message);
+          setSettingsOpen(true);
+          return;
+        }
         setError(
           err instanceof Error
             ? err.message
@@ -230,7 +253,7 @@ export default function App() {
       if (!img) return;
 
       const key = getStoredApiKey();
-      if (!key) {
+      if (!key && !hasAiAccess()) {
         setError('Vui lòng vào Cài đặt để nhập Gemini API key trước khi sử dụng.');
         setSettingsOpen(true);
         return;
@@ -245,6 +268,7 @@ export default function App() {
           referenceImage: refImg,
           apiKey: key,
         });
+        setDemoQuota(getDemoQuota());
 
         const matchPreset: Preset = {
           id: `ai-match-${Date.now()}`,
@@ -267,6 +291,12 @@ export default function App() {
         setActivePresetId(matchPreset.id);
         setIntensity(1);
       } catch (err) {
+        setDemoQuota(getDemoQuota());
+        if (err instanceof DemoLimitReachedError) {
+          setLimitNotice(err.message);
+          setSettingsOpen(true);
+          return;
+        }
         setError(
           err instanceof Error
             ? err.message
@@ -384,7 +414,11 @@ export default function App() {
                 onMatchColor={handleAiMatchColor}
                 isLoading={isAiLoading}
                 hasApiKey={hasApiKey}
-                onOpenSettings={() => setSettingsOpen(true)}
+                demoQuota={demoQuota}
+                onOpenSettings={() => {
+                  setLimitNotice(null);
+                  setSettingsOpen(true);
+                }}
               />
             </div>
             <AdjustPanel
@@ -413,18 +447,36 @@ export default function App() {
       {/* Modal Cài đặt */}
       <SettingsModal
         isOpen={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        onSaved={(hasKey) => setHasApiKey(hasKey)}
+        onClose={() => {
+          setSettingsOpen(false);
+          setLimitNotice(null);
+        }}
+        onSaved={(hasKey) => {
+          setHasApiKey(hasKey);
+          if (hasKey) setLimitNotice(null);
+        }}
+        limitNotice={limitNotice}
       />
 
       {/* Modal Hút màu từ ảnh mẫu bằng AI */}
       <ClonePresetModal
         isOpen={cloneModalOpen}
         onClose={() => setCloneModalOpen(false)}
-        onPresetCreated={handlePresetCreatedFromClone}
+        onPresetCreated={(preset) => {
+          setDemoQuota(getDemoQuota());
+          handlePresetCreatedFromClone(preset);
+        }}
         onError={setError}
         hasApiKey={hasApiKey}
-        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSettings={() => {
+          setLimitNotice(null);
+          setSettingsOpen(true);
+        }}
+        onDemoLimitReached={(msg) => {
+          setDemoQuota(getDemoQuota());
+          setLimitNotice(msg);
+          setSettingsOpen(true);
+        }}
       />
 
       {ready && error && (

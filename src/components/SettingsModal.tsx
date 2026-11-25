@@ -10,12 +10,14 @@ interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSaved?: (hasKey: boolean) => void;
+  limitNotice?: string | null;
 }
 
 export default function SettingsModal({
   isOpen,
   onClose,
   onSaved,
+  limitNotice,
 }: SettingsModalProps) {
   const [apiKey, setApiKey] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -83,6 +85,11 @@ export default function SettingsModal({
 
         {/* Body */}
         <div className="space-y-4 px-5 py-5 text-[13px]">
+          {limitNotice && (
+            <div className="rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-[12px] leading-relaxed text-amber-900">
+              {limitNotice}
+            </div>
+          )}
           <div>
             <label
               htmlFor="gemini-key-input"

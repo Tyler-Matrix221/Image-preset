@@ -11,12 +11,14 @@ import {
   X,
 } from 'lucide-react';
 import { getWeeklyTrendingStyles, type TrendingStyle } from '@/rules/tiktokTrends';
+import { hasAiAccess, hasDemoProxy, type DemoQuota } from '@/lib/geminiApi';
 
 interface AiSuggestionPanelProps {
   onGenerate: (prompt: string) => void;
   onMatchColor?: (refImage: HTMLImageElement) => void;
   isLoading: boolean;
   hasApiKey: boolean;
+  demoQuota?: DemoQuota | null;
   onOpenSettings: () => void;
 }
 
@@ -25,6 +27,7 @@ export default function AiSuggestionPanel({
   onMatchColor,
   isLoading,
   hasApiKey,
+  demoQuota,
   onOpenSettings,
 }: AiSuggestionPanelProps) {
   const [activeTab, setActiveTab] = useState<'trends' | 'match'>('trends');
@@ -42,7 +45,7 @@ export default function AiSuggestionPanel({
 
   const handleSubmit = (e?: React.FormEvent) => {
     e?.preventDefault();
-    if (!hasApiKey) {
+    if (!hasApiKey && !hasAiAccess()) {
       onOpenSettings();
       return;
     }
@@ -51,7 +54,7 @@ export default function AiSuggestionPanel({
 
   const handleSelectStyle = (style: TrendingStyle) => {
     setPrompt(style.prompt);
-    if (!hasApiKey) {
+    if (!hasApiKey && !hasAiAccess()) {
       onOpenSettings();
       return;
     }
@@ -78,7 +81,7 @@ export default function AiSuggestionPanel({
 
   const handleTriggerMatch = async () => {
     if (!matchPreview) return;
-    if (!hasApiKey) {
+    if (!hasApiKey && !hasAiAccess()) {
       onOpenSettings();
       return;
     }
@@ -114,6 +117,11 @@ export default function AiSuggestionPanel({
           <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-900 border border-amber-500/20">
             Gemini Flash
           </span>
+          {!hasApiKey && hasDemoProxy() && (
+            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 border border-emerald-200">
+              {demoQuota ? `Miễn phí ${demoQuota.remaining}/${demoQuota.limit}` : 'Dùng thử miễn phí'}
+            </span>
+          )}
         </span>
         <span className="text-[12px] font-medium text-zinc-500 hover:text-amber-700">
           {open ? 'Thu gọn' : 'Mở gợi ý'}
