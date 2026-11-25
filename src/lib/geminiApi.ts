@@ -698,10 +698,13 @@ export interface ShootingGuideResult {
   suggestedCrop?: SuggestedCrop;
 }
 
+export type ModelGender = 'female' | 'male' | 'couple';
+
 export interface AnalyzeSceneOptions {
   sceneImage: HTMLImageElement | HTMLCanvasElement;
   referenceImage?: HTMLImageElement | HTMLCanvasElement | null;
   exif?: PhotoExif | null;
+  modelGender?: ModelGender;
   apiKey?: string;
 }
 
@@ -715,6 +718,7 @@ export async function analyzeShootingScene({
   sceneImage,
   referenceImage,
   exif,
+  modelGender = 'female',
   apiKey,
 }: AnalyzeSceneOptions): Promise<ShootingGuideResult> {
   const key = (apiKey || getStoredApiKey()).trim();
@@ -733,11 +737,19 @@ export async function analyzeShootingScene({
     ? `Current test shot EXIF metadata: ISO ${exif.iso ?? 'unknown'}, Aperture f/${exif.fNumber ?? 'unknown'}, Shutter ${exif.exposureTime ?? 'unknown'}, Focal ${exif.focalLength ?? 'unknown'}mm, Camera: ${exif.cameraModel ?? 'unknown'}.`
     : 'No EXIF metadata available.';
 
+  const modelNote =
+    modelGender === 'male'
+      ? 'Subject is a MALE model: favor confident, relaxed masculine poses (broad shoulders, hands in pocket, leaning casually, natural knee stance).'
+      : modelGender === 'couple'
+      ? 'Subject is a COUPLE (2 people): favor natural, affectionate couple poses (including "couple-standing").'
+      : 'Subject is a FEMALE model: favor graceful, flattering feminine poses (S-curve, soft shoulder tilt, gentle hand near hair/face/prop, crossed or stepped leg).';
+
   const promptText = `
 You are a professional portrait & lifestyle photographer coaching a beginner on location.
 Image 1 is the current SCENE / TEST SHOT taken by the user.
 ${thumbRef ? 'Image 2 is a REFERENCE photo whose composition, camera angle, or pose the user wants to replicate in Image 1.' : ''}
 ${exifNote}
+${modelNote}
 
 Analyze Image 1 carefully and return practical, easy-to-follow guidance in VIETNAMESE:
 1. "lightingSummary": Brief 1-sentence summary of the lighting & environment (e.g. "Nắng chiều chếch bên phải, hậu cảnh sáng").

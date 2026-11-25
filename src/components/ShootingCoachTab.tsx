@@ -22,12 +22,14 @@ import {
   hasDemoProxy,
   type DemoQuota,
   type DynamicSkeleton,
+  type ModelGender,
   type PoseSuggestion,
   type ShootingGuideResult,
   type SuggestedCrop,
 } from '@/lib/geminiApi';
 import { loadImage } from '@/lib/imageEngine';
 import { POSE_TEMPLATES, getPoseById, type PoseTemplate } from '@/rules/poseTemplates';
+import { buildSoftSilhouette } from '@/rules/softPoseRenderer';
 
 interface ShootingCoachTabProps {
   hasApiKey: boolean;
@@ -51,6 +53,7 @@ export default function ShootingCoachTab({
   const [sceneExif, setSceneExif] = useState<PhotoExif | null>(null);
 
   const [refUrl, setRefUrl] = useState<string | null>(null);
+  const [modelGender, setModelGender] = useState<ModelGender>('female');
   const [guide, setGuide] = useState<ShootingGuideResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
@@ -161,6 +164,7 @@ export default function ShootingCoachTab({
         sceneImage: sceneImg,
         referenceImage: refImg,
         exif: sceneExif,
+        modelGender,
       });
 
       onQuotaUpdated(getDemoQuota());
@@ -469,23 +473,24 @@ export default function ShootingCoachTab({
                     };
                   };
 
-                  const pHead = mapPt(sk.head);
-                  const pNeck = mapPt(sk.neck);
-                  const pLS = mapPt(sk.lShoulder);
-                  const pRS = mapPt(sk.rShoulder);
-                  const pLE = mapPt(sk.lElbow);
-                  const pRE = mapPt(sk.rElbow);
-                  const pLW = mapPt(sk.lWrist);
-                  const pRW = mapPt(sk.rWrist);
-                  const pLH = mapPt(sk.lHip);
-                  const pRH = mapPt(sk.rHip);
-                  const pLK = mapPt(sk.lKnee);
-                  const pRK = mapPt(sk.rKnee);
-                  const pLA = mapPt(sk.lAnkle);
-                  const pRA = mapPt(sk.rAnkle);
+                  const mapped = {
+                    head: mapPt(sk.head),
+                    neck: mapPt(sk.neck),
+                    lShoulder: mapPt(sk.lShoulder),
+                    rShoulder: mapPt(sk.rShoulder),
+                    lElbow: mapPt(sk.lElbow),
+                    rElbow: mapPt(sk.rElbow),
+                    lWrist: mapPt(sk.lWrist),
+                    rWrist: mapPt(sk.rWrist),
+                    lHip: mapPt(sk.lHip),
+                    rHip: mapPt(sk.rHip),
+                    lKnee: mapPt(sk.lKnee),
+                    rKnee: mapPt(sk.rKnee),
+                    lAnkle: mapPt(sk.lAnkle),
+                    rAnkle: mapPt(sk.rAnkle),
+                  };
 
-                  const shoulderW = Math.hypot(pRS.x - pLS.x, pRS.y - pLS.y);
-                  const headR = Math.max(8, Math.min(26, shoulderW * 0.34));
+                  const sil = buildSoftSilhouette(mapped, modelGender);
 
                   return (
                     <svg
@@ -493,33 +498,27 @@ export default function ShootingCoachTab({
                       className="pointer-events-none absolute inset-0 h-full w-full drop-shadow-[0_2px_6px_rgba(0,0,0,0.85)]"
                       fill="none"
                     >
-                      <circle cx={pHead.x} cy={pHead.y} r={headR} stroke="rgba(255,255,255,0.95)" strokeWidth="2.8" />
-                      <path
-                        d={`M${pHead.x},${pHead.y + headR} L${pNeck.x},${pNeck.y}`}
-                        stroke="rgba(255,255,255,0.95)"
-                        strokeWidth="2.8"
-                        strokeLinecap="round"
-                      />
-                      <path
-                        d={`M${pLS.x},${pLS.y} L${pRS.x},${pRS.y} L${pRH.x},${pRH.y} L${pLH.x},${pLH.y} Z`}
-                        stroke="rgba(255,255,255,0.95)"
-                        strokeWidth="2.8"
-                        strokeLinejoin="round"
-                      />
-                      <path
-                        d={`M${pLS.x},${pLS.y} L${pLE.x},${pLE.y} L${pLW.x},${pLW.y} M${pRS.x},${pRS.y} L${pRE.x},${pRE.y} L${pRW.x},${pRW.y}`}
-                        stroke="rgba(255,255,255,0.95)"
-                        strokeWidth="2.8"
+                      <g
+                        stroke="rgba(255,255,255,0.92)"
+                        strokeWidth="2.1"
                         strokeLinecap="round"
                         strokeLinejoin="round"
-                      />
-                      <path
-                        d={`M${pLH.x},${pLH.y} L${pLK.x},${pLK.y} L${pLA.x},${pLA.y} M${pRH.x},${pRH.y} L${pRK.x},${pRK.y} L${pRA.x},${pRA.y}`}
-                        stroke="rgba(255,255,255,0.95)"
-                        strokeWidth="2.8"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
+                      >
+                        <ellipse
+                          cx={sil.headCx}
+                          cy={sil.headCy}
+                          rx={sil.headRx}
+                          ry={sil.headRy}
+                          transform={`rotate(${sil.headAngleDeg.toFixed(1)} ${sil.headCx.toFixed(1)} ${sil.headCy.toFixed(1)})`}
+                          fill="rgba(255,255,255,0.10)"
+                        />
+                        <path d={sil.neckPath} />
+                        <path d={sil.leftLegPath} fill="rgba(255,255,255,0.10)" />
+                        <path d={sil.rightLegPath} fill="rgba(255,255,255,0.10)" />
+                        <path d={sil.torsoPath} fill="rgba(255,255,255,0.12)" />
+                        <path d={sil.leftArmPath} fill="rgba(255,255,255,0.10)" />
+                        <path d={sil.rightArmPath} fill="rgba(255,255,255,0.10)" />
+                      </g>
                     </svg>
                   );
                 })()
@@ -679,6 +678,33 @@ export default function ShootingCoachTab({
                         </button>
                       );
                     })}
+              </div>
+            </div>
+
+            {/* Chọn nhanh giới tính/loại mẫu + Nút AI phân tích */}
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11.5px] font-semibold text-zinc-600">Người mẫu:</span>
+              <div className="flex flex-1 rounded-xl bg-zinc-100 p-0.5 text-[11.5px] font-medium">
+                {(
+                  [
+                    { id: 'female', label: 'Nữ' },
+                    { id: 'male', label: 'Nam' },
+                    { id: 'couple', label: 'Cặp đôi' },
+                  ] as const
+                ).map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setModelGender(item.id)}
+                    className={`flex-1 rounded-lg py-1 transition-all ${
+                      modelGender === item.id
+                        ? 'bg-white font-semibold text-zinc-900 shadow-2xs'
+                        : 'text-zinc-500 hover:text-zinc-800'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
               </div>
             </div>
 
