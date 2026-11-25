@@ -693,7 +693,7 @@ export async function analyzeShootingScene({
   const thumbRef = referenceImage ? await createGeminiThumbnail(referenceImage, 512) : null;
 
   const poseCatalog = POSE_TEMPLATES.map(
-    (p) => `- "${p.id}": ${p.name} (${p.category})`,
+    (p) => `- "${p.id}" (${p.name}): ${p.visualDescription}`,
   ).join('\n');
 
   const exifNote = exif
@@ -717,7 +717,7 @@ Analyze Image 1 carefully and return practical, easy-to-follow guidance in VIETN
    - "ev": e.g. "+0.3 EV"
 4. "poses": Pick 3 to 4 best poses from the ALLOWED POSE IDS below for this scene. For each pose provide:
    - "poseId": exact id from the list
-   - "tip": 1 short, natural Vietnamese instruction for the model (like Huawei AI Pose Guide, e.g. "Người xoay nhẹ 45°, một tay chạm tóc, mắt nhìn sang trái")
+   - "tip": 1 short, natural Vietnamese instruction for the model. CRITICAL RULE FOR "tip": Your "tip" MUST accurately match the EXACT body/hand/leg posture of the chosen "poseId" description below! Do NOT invent hand, prop, sitting, or leg actions that contradict that pose's drawing.
    - "xPercent": number 20..80 (horizontal center where the model should stand in Image 1)
    - "yPercent": number 30..75 (vertical center in Image 1)
    - "scale": number 0.6..1.25 (size relative to frame height)

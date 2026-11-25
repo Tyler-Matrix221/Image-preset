@@ -2,6 +2,8 @@ export interface PoseTemplate {
   id: string;
   name: string;
   category: string;
+  /** Mô tả chính xác tư thế của hình vẽ SVG để AI viết câu hướng dẫn khớp 100% */
+  visualDescription: string;
   defaultTip: string;
   /** Đường nét trắng vẽ trong viewBox 0 0 200 320 */
   paths: string[];
@@ -13,116 +15,209 @@ export const POSE_TEMPLATES: PoseTemplate[] = [
     id: 'standing-casual',
     name: 'Đứng tự nhiên',
     category: 'Đứng',
-    defaultTip: 'Đứng thả lỏng vai, một tay đút túi quần hoặc chạm nhẹ vạt áo, chân trước hơi chùng.',
-    head: { cx: 100, cy: 48, r: 18 },
+    visualDescription:
+      'Standing facing front; one hand (right hand, on viewer-left) tucked into pocket, the other arm relaxed at side, one knee slightly relaxed.',
+    defaultTip:
+      'Đứng thẳng thả lỏng vai, tay phải đút túi quần, tay trái buông tự nhiên và hơi chùng nhẹ một chân.',
+    head: { cx: 100, cy: 44, r: 16 },
     paths: [
-      'M84,72 C74,76 68,86 64,115 L58,162 L72,164 L78,125 L82,175 L76,285 L92,285 L100,192 L112,285 L128,285 L118,175 L122,125 L132,158 L144,154 L134,108 C130,84 122,76 114,72 Z',
-      'M84,72 Q100,82 114,72',
+      'M100,60 L100,72',
+      'M74,76 Q100,70 126,76 L118,158 L82,158 Z',
+      'M74,78 L60,118 L78,148',
+      'M126,78 L136,124 L132,162',
+      'M88,158 L84,224 L82,286',
+      'M112,158 L118,224 L110,286',
     ],
   },
   {
     id: 'standing-side',
     name: 'Nghiêng 45° ngoái nhìn',
     category: 'Đứng',
-    defaultTip: 'Xoay người góc 45° so với ống kính, quay đầu nhìn về máy ảnh để góc mặt thon gọn hơn.',
-    head: { cx: 92, cy: 46, r: 17 },
+    visualDescription:
+      'Body angled 45 degrees sideways, head turned toward camera; near hand resting lightly on waist/hip, one leg stepped slightly forward.',
+    defaultTip:
+      'Xoay người nghiêng góc 45°, một tay chống nhẹ ngang hông, bước một chân lên trước và quay mặt nhìn ống kính.',
+    head: { cx: 94, cy: 44, r: 16 },
     paths: [
-      'M84,68 C72,76 68,94 64,128 L54,168 L68,170 L78,136 L78,180 L68,286 L84,286 L96,196 L112,286 L128,286 L112,176 L114,124 L132,148 L142,140 L118,96 C114,78 106,70 98,68 Z',
+      'M95,60 L96,72',
+      'M80,76 L112,76 L108,156 L82,156 Z',
+      'M80,78 L70,122',
+      'M112,78 L128,112 L108,142',
+      'M86,156 L78,224 L76,286',
+      'M102,156 L114,222 L118,286',
     ],
   },
   {
     id: 'walking-candid',
     name: 'Bước đi tự nhiên',
     category: 'Chuyển động',
-    defaultTip: 'Bước nhẹ về phía trước hoặc chéo khung hình, mắt nhìn sang hướng khác để tạo cảm giác tự nhiên.',
-    head: { cx: 108, cy: 46, r: 17 },
+    visualDescription:
+      'Mid-stride walking pose; one leg stepping forward and the other back, arms swinging gently in opposite directions, looking slightly aside.',
+    defaultTip:
+      'Bước chân dài tự nhiên như đang đi dạo, hai tay vung nhẹ ngược chiều nhau, ánh mắt nhìn lệch sang một bên.',
+    head: { cx: 104, cy: 44, r: 16 },
     paths: [
-      'M94,68 C82,76 74,94 64,126 L48,154 L60,160 L78,132 L86,174 L60,278 L76,284 L102,196 L130,282 L146,276 L116,172 L120,122 L142,148 L152,138 L126,92 C120,76 112,70 104,68 Z',
+      'M103,60 L102,72',
+      'M82,76 L122,76 L116,156 L86,156 Z',
+      'M82,78 L64,116 L54,148',
+      'M122,78 L136,114 L144,140',
+      'M90,156 L74,220 L58,282',
+      'M112,156 L128,220 L142,282',
     ],
   },
   {
     id: 'hand-hair',
     name: 'Vuốt tóc / Che nắng',
     category: 'Chân dung',
-    defaultTip: 'Đưa một tay lên chạm nhẹ tóc hoặc che nắng ngang trán, nghiêng đầu nhẹ tạo nét mềm mại.',
-    head: { cx: 100, cy: 50, r: 18 },
+    visualDescription:
+      'Standing pose with one arm raised (model left arm, viewer-right), elbow bent outward and hand gently touching hair/temple; other arm relaxed down at side.',
+    defaultTip:
+      'Giơ tay trái lên chạm nhẹ tóc hoặc che nắng ngang trán, khuỷu tay mở nhẹ, tay phải buông thả lỏng.',
+    head: { cx: 100, cy: 46, r: 16 },
     paths: [
-      'M84,74 C72,82 66,102 64,136 L58,176 L72,178 L78,140 L82,182 L78,285 L94,285 L100,196 L110,285 L126,285 L118,182 L122,126 L142,96 L126,56 L116,64 L126,94 L112,112 C110,88 106,78 100,74 Z',
+      'M100,62 L100,74',
+      'M76,76 Q100,70 124,76 L116,158 L84,158 Z',
+      'M76,78 L66,124 L68,164',
+      'M124,78 L148,92 L118,52',
+      'M88,158 L84,224 L82,286',
+      'M112,158 L118,224 L118,286',
     ],
   },
   {
     id: 'holding-prop',
     name: 'Cầm hoa / Phụ kiện',
     category: 'Đạo cụ',
-    defaultTip: 'Một tay nâng nhẹ hoa/ly nước ngang ngực, tay kia thả lỏng hoặc bước nhẹ một chân sang bên.',
-    head: { cx: 102, cy: 46, r: 17 },
+    visualDescription:
+      'Standing holding a prop (bouquet, coffee cup, or bag) at chest height with bent arm (model right arm, viewer-left); other arm hanging relaxed at side.',
+    defaultTip:
+      'Tay phải gập nhẹ nâng hoa/ly nước ngang ngực, tay trái thả lỏng tự nhiên, người hơi hướng về phía trước.',
+    head: { cx: 100, cy: 44, r: 16 },
     paths: [
-      'M86,68 C74,76 68,94 64,124 L46,110 L38,120 L66,144 L80,178 L72,286 L88,286 L100,196 L116,286 L132,286 L118,178 L124,128 L142,158 L154,152 L134,100 C128,78 118,70 108,68 Z',
-      'M34,88 C30,100 34,114 44,116 C54,114 58,100 54,88 Z',
+      'M100,60 L100,72',
+      'M76,76 Q100,70 124,76 L118,158 L82,158 Z',
+      'M76,78 L58,118 L74,102',
+      'M62,84 C62,72 78,72 78,84 C78,94 70,100 70,100 C70,100 62,94 62,84 Z',
+      'M124,78 L134,124 L132,162',
+      'M88,158 L84,224 L82,286',
+      'M112,158 L118,224 L118,286',
     ],
   },
   {
     id: 'half-body-lean',
     name: 'Tựa lan can / Tường',
     category: 'Bán thân',
-    defaultTip: 'Tựa nhẹ hông hoặc khuỷu tay vào lan can/tường, người hơi ngả về trước tạo chiều sâu.',
-    head: { cx: 96, cy: 52, r: 18 },
+    visualDescription:
+      'Standing leaning casually against a horizontal railing at hip level; both forearms resting toward the railing, one ankle crossed.',
+    defaultTip:
+      'Tựa nhẹ hông và hai khuỷu tay lên lan can/bệ tường, hai chân bắt chéo nhẹ để tạo cảm giác thư giãn.',
+    head: { cx: 96, cy: 48, r: 16 },
     paths: [
-      'M80,76 C68,84 62,108 60,144 L44,180 L58,186 L74,152 L80,194 L76,286 L94,286 L102,202 L114,286 L130,286 L120,192 L128,144 L148,166 L158,156 L134,110 C126,86 116,78 106,76 Z',
-      'M20,186 L180,186',
+      'M96,64 L96,74',
+      'M74,78 L120,78 L114,164 L80,164 Z',
+      'M74,80 L56,126 L72,168',
+      'M120,80 L136,128 L124,168',
+      'M18,170 L182,170',
+      'M86,164 L84,226 L84,284',
+      'M110,164 L114,226 L96,282',
     ],
   },
   {
     id: 'cafe-sitting',
     name: 'Ngồi quán cafe',
     category: 'Ngồi',
-    defaultTip: 'Ngồi hơi nghiêng người về mép ghế, một tay đặt nhẹ lên bàn hoặc chống cằm, lưng giữ thẳng.',
-    head: { cx: 104, cy: 62, r: 17 },
+    visualDescription:
+      'Seated sideways at a cafe table on the left with a cup; leaning slightly forward with one arm resting on the table beside the cup, knees bent.',
+    defaultTip:
+      'Ngồi hơi nghiêng người về phía bàn cafe, tay phải đặt nhẹ lên mặt bàn cạnh ly nước, lưng giữ thẳng tự nhiên.',
+    head: { cx: 116, cy: 62, r: 16 },
     paths: [
-      'M88,84 C76,92 70,112 68,146 L52,168 L62,178 L80,158 L84,196 L134,202 L144,274 L160,274 L148,188 L112,182 L116,134 L138,158 L148,148 L124,108 C118,92 112,86 104,84 Z',
-      'M40,178 L110,178',
+      'M116,78 L116,88',
+      'M96,90 L138,90 L134,174 L98,174 Z',
+      'M96,92 L78,134 L88,166',
+      'M138,92 L144,138 L126,170',
+      'M22,168 L98,168',
+      'M42,154 L56,154 L54,168 L44,168 Z',
+      'M100,174 L68,196 L68,268',
+      'M128,174 L98,202 L98,272',
     ],
   },
   {
     id: 'looking-back',
     name: 'Quay lưng ngoái đầu',
     category: 'Nghệ thuật',
-    defaultTip: 'Quay lưng về phía ống kính, xoay đầu qua vai nhìn lại hoặc nhìn theo cảnh vật phía xa.',
-    head: { cx: 100, cy: 48, r: 17 },
+    visualDescription:
+      'Back facing the camera, turning head back over the right shoulder toward the lens, both arms relaxed at sides.',
+    defaultTip:
+      'Quay lưng về phía máy ảnh, nhẹ nhàng ngoái đầu qua vai nhìn lại ống kính, hai tay buông tự nhiên.',
+    head: { cx: 102, cy: 46, r: 16 },
     paths: [
-      'M82,70 C72,78 66,98 64,132 L58,176 L72,178 L78,136 L82,182 L76,286 L92,286 L100,194 L112,286 L128,286 L118,182 L122,136 L130,174 L144,170 L134,110 C128,82 120,74 112,70 Z',
+      'M100,62 L100,72',
+      'M74,76 Q100,84 126,76 L118,160 L82,160 Z',
+      'M74,78 L64,126 L62,164',
+      'M126,78 L138,124 L142,160',
+      'M88,160 L82,226 L80,286',
+      'M112,160 L122,226 L126,286',
     ],
   },
   {
     id: 'squat-street',
     name: 'Ngồi bậc thềm / Street',
     category: 'Ngồi',
-    defaultTip: 'Ngồi thấp trên bậc thềm, một đầu gối nâng cao để tay tựa lên, tạo dáng phóng khoáng.',
-    head: { cx: 100, cy: 76, r: 17 },
+    visualDescription:
+      'Sitting low on steps/curb; right knee raised up with right elbow resting on knee, left foot resting lower on the step.',
+    defaultTip:
+      'Ngồi thấp trên bậc thềm, co cao đầu gối phải để tựa khuỷu tay lên, chân trái duỗi thấp tự nhiên.',
+    head: { cx: 100, cy: 74, r: 16 },
     paths: [
-      'M84,98 C72,108 66,132 68,166 L54,218 L72,222 L82,178 L100,206 L82,276 L98,280 L114,218 L136,278 L152,272 L128,184 L138,144 L154,174 L166,166 L134,116 C126,104 116,98 106,98 Z',
+      'M100,90 L100,102',
+      'M78,104 L124,104 L118,184 L82,184 Z',
+      'M78,106 L64,154 L76,188',
+      'M124,106 L142,146 L128,164',
+      'M86,184 L74,228 L88,268',
+      'M114,184 L138,150 L146,230',
+      'M26,232 L174,232',
     ],
   },
   {
     id: 'minimal-center',
     name: 'Đứng giữa cảnh rộng',
     category: 'Phong cảnh',
-    defaultTip: 'Đứng chính giữa khung hình, hai tay giang nhẹ hoặc đút túi để tôn lên độ rộng của phong cảnh.',
-    head: { cx: 100, cy: 78, r: 13 },
+    visualDescription:
+      'Small full-body figure standing centered in a wide landscape or architectural frame, arms relaxed slightly outward.',
+    defaultTip:
+      'Đứng nhỏ gọn ở chính giữa khung cảnh rộng, thả lỏng hai tay để làm nổi bật sự hùng vĩ của bối cảnh.',
+    head: { cx: 100, cy: 82, r: 12 },
     paths: [
-      'M88,96 L64,126 L72,132 L88,112 L88,168 L82,256 L94,256 L100,182 L106,256 L118,256 L112,168 L112,112 L128,132 L136,126 L112,96 Z',
+      'M100,94 L100,100',
+      'M86,102 L114,102 L110,164 L90,164 Z',
+      'M86,104 L74,142 L72,168',
+      'M114,104 L126,142 L128,168',
+      'M94,164 L92,216 L90,264',
+      'M106,164 L108,216 L110,264',
     ],
   },
   {
     id: 'couple-standing',
     name: 'Cặp đôi đứng cạnh',
     category: '2 người',
-    defaultTip: 'Hai người đứng sát vai nhau, một người hơi quay mặt nhìn đối phương hoặc cùng hướng về ống kính.',
-    head: { cx: 78, cy: 52, r: 16 },
+    visualDescription:
+      'Two people standing close side by side; taller person on the right with one arm gently around the shoulder/back of the person on the left.',
+    defaultTip:
+      'Hai người đứng sát vai nhau, người bên phải vòng tay nhẹ qua vai/lưng người bên trái, cùng nhìn ống kính hoặc nhìn nhau.',
+    head: { cx: 76, cy: 54, r: 15 },
     paths: [
-      'M64,72 C54,80 50,104 48,146 L46,184 L58,184 L62,140 L64,184 L58,284 L72,284 L78,196 L86,284 L100,284 L92,184 L94,116 C92,84 86,74 78,72 Z',
-      'M124,42 A15,15 0 1,0 124.1,42 Z',
-      'M110,78 C102,86 98,112 96,154 L94,186 L108,186 L112,186 L106,284 L120,284 L126,198 L134,284 L148,284 L140,184 L144,124 L156,168 L168,164 L152,102 C146,84 138,78 128,78 Z',
+      'M76,69 L76,78',
+      'M58,80 L94,80 L92,158 L60,158 Z',
+      'M58,82 L50,126 L54,160',
+      'M66,158 L64,222 L64,282',
+      'M84,158 L88,222 L88,282',
+      'M124,27 A15,15 0 1,0 124.1,27 Z',
+      'M124,57 L124,66',
+      'M106,68 L144,68 L140,158 L108,158 Z',
+      'M106,70 L94,108',
+      'M144,70 L154,122 L150,158',
+      'M114,158 L112,222 L112,282',
+      'M132,158 L136,222 L136,282',
     ],
   },
 ];
