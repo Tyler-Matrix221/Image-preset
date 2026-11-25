@@ -1,5 +1,6 @@
 export interface Env {
   GEMINI_API_KEY: string;
+  XAH_API_KEY?: string;
   DAILY_LIMIT?: string;
   ALLOWED_ORIGINS?: string;
   RATE_LIMIT_KV?: KVNamespace;
@@ -78,13 +79,6 @@ export default {
       });
     }
 
-    if (!env.GEMINI_API_KEY) {
-      return new Response(
-        JSON.stringify({ error: 'Proxy chưa được cấu hình GEMINI_API_KEY.' }),
-        { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } },
-      );
-    }
-
     // Kiểm tra giới hạn lượt dùng miễn phí trong ngày
     if (currentUsed >= limit) {
       return new Response(
@@ -103,6 +97,75 @@ export default {
             'X-RateLimit-Remaining': '0',
           },
         },
+      );
+    }
+
+    // Route riêng tạo ảnh người thật minh họa tư thế qua api.xah.io (gpt-image-1.5)
+    if (url.pathname === '/image-gen') {
+      if (!env.XAH_API_KEY) {
+        return new Response(
+          JSON.stringify({ error: 'Proxy chưa được cấu hình XAH_API_KEY cho tính năng tạo ảnh mẫu.' }),
+          { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } },
+        );
+      }
+
+      let imgBody: { prompt?: string; size?: string };
+      try {
+        imgBody = await request.json();
+      } catch {
+        return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+          status: 400,
+          headers: { ...cors, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const prompt = typeof imgBody?.prompt === 'string' ? imgBody.prompt.trim().slice(0, 1200) : '';
+      if (!prompt) {
+        return new Response(JSON.stringify({ error: 'Thiếu mô tả ảnh.' }), {
+          status: 400,
+          headers: { ...cors, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const allowedSizes = new Set(['1024x1024', '1024x1536', '1536x1024']);
+      const size = imgBody.size && allowedSizes.has(imgBody.size) ? imgBody.size : '1024x1024';
+
+      const xahRes = await fetch('https://api.xah.io/v1/images/generations', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${env.XAH_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'daongocson12022004/gpt-image-1.5',
+          prompt,
+          n: 1,
+          size,
+        }),
+      });
+
+      const xahText = await xahRes.text();
+      let nextUsed = currentUsed;
+      if (xahRes.ok && env.RATE_LIMIT_KV) {
+        nextUsed = currentUsed + 1;
+        await env.RATE_LIMIT_KV.put(quotaKey, String(nextUsed), { expirationTtl: 86400 });
+      }
+
+      return new Response(xahText, {
+        status: xahRes.status,
+        headers: {
+          ...cors,
+          'Content-Type': 'application/json',
+          'X-RateLimit-Limit': String(limit),
+          'X-RateLimit-Remaining': String(Math.max(0, limit - nextUsed)),
+        },
+      });
+    }
+
+    if (!env.GEMINI_API_KEY) {
+      return new Response(
+        JSON.stringify({ error: 'Proxy chưa được cấu hình GEMINI_API_KEY.' }),
+        { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } },
       );
     }
 

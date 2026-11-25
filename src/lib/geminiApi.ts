@@ -687,6 +687,7 @@ export interface SuggestedCrop {
 export interface ShootingGuideResult {
   lightingSummary: string;
   angleAdvice: string;
+  sceneVisualPrompt?: string;
   cameraSettings: {
     aperture: string;
     shutterSpeed: string;
@@ -754,6 +755,7 @@ ${modelNote}
 Analyze Image 1 carefully and return practical, easy-to-follow guidance in VIETNAMESE:
 1. "lightingSummary": Brief 1-sentence summary of the lighting & environment (e.g. "Nắng chiều chếch bên phải, hậu cảnh sáng").
 2. "angleAdvice": Concise 1–2 sentences telling the photographer how to adjust camera angle, distance, or framing for better balance (e.g. "Hạ máy thấp ngang hông, bước sang trái 1 bước để tránh cột phía sau và đặt chủ thể ở 1/3 phải").
+3. "sceneVisualPrompt": A concise, vivid English visual description (15–25 words) of the exact background, furniture, colors, and lighting in Image 1 (e.g. "cozy vintage indoor cafe with warm yellow pendant lights, brown leather Chesterfield sofa, vinyl records on wooden shelves").
 3. "cameraSettings": Starting-point camera settings tailored to this lighting:
    - "aperture": e.g. "f/2.8"
    - "shutterSpeed": e.g. "1/250s"
@@ -902,6 +904,10 @@ CRITICAL RULES:
       typeof parsed?.angleAdvice === 'string'
         ? parsed.angleAdvice
         : 'Giữ đường chân trời thẳng và đặt chủ thể theo tỷ lệ 1/3.',
+    sceneVisualPrompt:
+      typeof parsed?.sceneVisualPrompt === 'string' && parsed.sceneVisualPrompt.trim()
+        ? parsed.sceneVisualPrompt.trim()
+        : undefined,
     cameraSettings: {
       aperture: String(cs.aperture || 'f/2.8'),
       shutterSpeed: String(cs.shutterSpeed || '1/250s'),
@@ -916,6 +922,7 @@ CRITICAL RULES:
 
 export interface GeneratePoseImageOptions {
   sceneImage: HTMLImageElement | HTMLCanvasElement;
+  sceneVisualPrompt?: string;
   tip: string;
   modelGender: ModelGender;
   apiKey?: string;
@@ -928,30 +935,91 @@ const IMAGE_GEN_MODELS = [
 ];
 
 /**
- * Cách 2: Dùng Gemini Image Generation ghép một người mẫu thật vào đúng ảnh bối cảnh
- * theo tư thế (tip) và giới tính mẫu (Nam/Nữ/Cặp đôi).
- * Lưu ý: Các model tạo ảnh của Google yêu cầu API Key đã bật Billing (trả phí).
+ * Tạo ảnh người mẫu thật minh họa tư thế & bối cảnh tương tự qua Proxy (gpt-image-1.5)
+ * hoặc fallback sang Gemini Image nếu chạy với Key trả phí.
  */
 export async function generatePosePreviewImage({
   sceneImage,
+  sceneVisualPrompt,
   tip,
   modelGender,
   apiKey,
 }: GeneratePoseImageOptions): Promise<string> {
-  const key = (apiKey || getStoredApiKey()).trim();
-  if (!key) {
-    throw new Error(
-      'Tính năng vẽ người mẫu thật yêu cầu nhập Google Gemini API Key cá nhân (đã bật Billing) trong Cài đặt.',
-    );
-  }
-
-  const { base64Data, mimeType } = await createGeminiThumbnail(sceneImage, 768);
   const subjectDesc =
     modelGender === 'male'
       ? 'a stylish young Vietnamese man in casual modern outfit'
       : modelGender === 'couple'
       ? 'a stylish young Vietnamese couple in matching casual outfits'
       : 'a stylish young Vietnamese woman in casual modern outfit';
+
+  // Ưu tiên gọi qua Cloudflare Worker Proxy (/image-gen -> gpt-image-1.5)
+  if (DEMO_PROXY_URL) {
+    const w = 'naturalWidth' in sceneImage ? sceneImage.naturalWidth : sceneImage.width;
+    const h = 'naturalHeight' in sceneImage ? sceneImage.naturalHeight : sceneImage.height;
+    const size = h > w * 1.15 ? '1024x1536' : w > h * 1.15 ? '1536x1024' : '1024x1024';
+
+    const envPart = sceneVisualPrompt
+      ? `Setting: ${sceneVisualPrompt}. `
+      : '';
+    const genPrompt = `Photorealistic candid portrait photograph. ${envPart}Subject: ${subjectDesc}. Pose & framing: ${tip}. Natural realistic lighting, 35mm camera look, flattering photography composition.`;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 35000);
+    try {
+      const res = await fetch(`${DEMO_PROXY_URL}/image-gen`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: genPrompt, size }),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+
+      const limitHeader = Number(res.headers.get('X-RateLimit-Limit'));
+      const remHeader = Number(res.headers.get('X-RateLimit-Remaining'));
+      if (Number.isFinite(limitHeader) && Number.isFinite(remHeader) && limitHeader > 0) {
+        cachedDemoQuota = { limit: limitHeader, remaining: remHeader };
+      }
+
+      if (res.status === 429) {
+        const errJson = await res.json().catch(() => ({}));
+        if (errJson?.code === 'DAILY_LIMIT_REACHED') {
+          cachedDemoQuota = { limit: cachedDemoQuota?.limit || 5, remaining: 0 };
+          throw new DemoLimitReachedError(
+            errJson.error ||
+              'Bạn đã dùng hết lượt AI miễn phí hôm nay. Hãy nhập API Key cá nhân hoặc quay lại vào ngày mai.',
+          );
+        }
+      }
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson?.error?.message || errJson?.error || `Lỗi tạo ảnh (HTTP ${res.status})`);
+      }
+
+      const data = await res.json();
+      const b64 = data?.data?.[0]?.b64_json;
+      const url = data?.data?.[0]?.url;
+      if (b64) return `data:image/png;base64,${b64}`;
+      if (url) return url;
+      throw new Error('Không nhận được dữ liệu ảnh từ máy chủ tạo ảnh.');
+    } catch (e: any) {
+      clearTimeout(timer);
+      if (e instanceof DemoLimitReachedError) throw e;
+      if (e?.name === 'AbortError') {
+        throw new Error('Quá thời gian tạo ảnh mẫu (35s). Vui lòng thử lại.');
+      }
+      throw e instanceof Error ? e : new Error('Lỗi khi tạo ảnh người mẫu thật.');
+    }
+  }
+
+  const key = (apiKey || getStoredApiKey()).trim();
+  if (!key) {
+    throw new Error(
+      'Tính năng tạo ảnh người mẫu thật yêu cầu kết nối Proxy hoặc Gemini API Key có bật Billing.',
+    );
+  }
+
+  const { base64Data, mimeType } = await createGeminiThumbnail(sceneImage, 768);
 
   const promptText = `Keep this exact background, furniture, perspective, and lighting completely unchanged. Naturally place ${subjectDesc} into this scene following this exact pose instruction: "${tip}". Make lighting, shadows on the floor/furniture, and proportions photorealistic so the photographer and model can use it as a pose reference.`;
 

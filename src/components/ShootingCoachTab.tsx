@@ -274,10 +274,8 @@ export default function ShootingCoachTab({
   const handleGenerateRealPose = async () => {
     const targetFile = cropPreviewActive && croppedFile ? croppedFile : sceneFile;
     if (!targetFile) return;
-    if (!hasApiKey) {
-      onOpenSettings(
-        'Tính năng ghép người mẫu thật (Cách 2) yêu cầu Gemini API Key cá nhân có bật Billing trên Google AI Studio.',
-      );
+    if (!hasApiKey && !hasAiAccess()) {
+      onOpenSettings();
       return;
     }
 
@@ -286,14 +284,21 @@ export default function ShootingCoachTab({
       const img = await loadImage(targetFile);
       const dataUrl = await generatePosePreviewImage({
         sceneImage: img,
+        sceneVisualPrompt: guide?.sceneVisualPrompt,
         tip: activeTipText,
         modelGender,
       });
+      onQuotaUpdated(getDemoQuota());
       setGeneratedPoseUrl(dataUrl);
       setShowGeneratedPose(true);
     } catch (err) {
+      onQuotaUpdated(getDemoQuota());
+      if (err instanceof DemoLimitReachedError) {
+        onOpenSettings(err.message);
+        return;
+      }
       onError(
-        err instanceof Error ? err.message : 'Không thể ghép người mẫu thật vào ảnh này.',
+        err instanceof Error ? err.message : 'Không thể tạo ảnh người mẫu thật.',
       );
     } finally {
       setIsGeneratingPoseImg(false);
@@ -840,7 +845,7 @@ export default function ShootingCoachTab({
               )}
             </div>
 
-            {/* Cách 2: Ghép người mẫu thật vào ảnh bối cảnh (Yêu cầu Key có Billing) */}
+            {/* Tạo ảnh người mẫu thật minh họa tư thế (gpt-image-1.5 qua Proxy) */}
             {guide && (
               <button
                 type="button"
@@ -851,12 +856,12 @@ export default function ShootingCoachTab({
                 {isGeneratingPoseImg ? (
                   <>
                     <Loader2 size={14} className="animate-spin" />
-                    <span>Đang ghép người mẫu thật vào cảnh...</span>
+                    <span>Đang tạo ảnh người thật minh họa...</span>
                   </>
                 ) : (
                   <>
                     <UserCheck size={14} className="text-rose-600" />
-                    <span>Vẽ người thật mẫu vào cảnh này (Cần Key Billing)</span>
+                    <span>Tạo ảnh người thật minh họa tư thế</span>
                   </>
                 )}
               </button>
