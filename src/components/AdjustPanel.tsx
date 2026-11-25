@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, Info, SlidersHorizontal } from 'lucide-react';
+import { ChevronDown, ChevronUp, Download, Info, SlidersHorizontal } from 'lucide-react';
 import {
   PARAM_GROUPS,
   PARAM_SCHEMAS,
@@ -18,6 +18,7 @@ interface AdjustPanelProps {
     value: number,
   ) => void;
   onResetAll: () => void;
+  onExportXmp?: () => void;
   resetDisabled: boolean;
   isLutActive?: boolean;
 }
@@ -27,6 +28,7 @@ export default function AdjustPanel({
   onParamChange,
   onHslChange,
   onResetAll,
+  onExportXmp,
   resetDisabled,
   isLutActive = false,
 }: AdjustPanelProps) {
@@ -51,7 +53,21 @@ export default function AdjustPanel({
             </span>
           )}
         </span>
-        <span className="flex items-center gap-2">
+        <span className="flex items-center gap-1.5">
+          {open && !isLutActive && onExportXmp && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onExportXmp();
+              }}
+              className="inline-flex items-center gap-1 rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-[11.5px] font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
+              title="Xuất thông số hiện tại ra file .xmp (Lightroom)"
+            >
+              <Download size={12} />
+              <span>.xmp</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={(e) => {

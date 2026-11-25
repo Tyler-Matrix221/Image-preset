@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Settings } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Redo2, Settings, Undo2 } from 'lucide-react';
 import CanvasStage from '@/components/CanvasStage';
 import ControlsPanel from '@/components/ControlsPanel';
 import AdjustPanel from '@/components/AdjustPanel';
@@ -8,11 +8,13 @@ import UploadZone from '@/components/UploadZone';
 import SettingsModal from '@/components/SettingsModal';
 import AiSuggestionPanel from '@/components/AiSuggestionPanel';
 import ClonePresetModal from '@/components/ClonePresetModal';
+import ExportModal from '@/components/ExportModal';
 import {
   ImageEngine,
   downscaleCanvas,
   exportImage,
   loadImage,
+  type ExportOptions,
 } from '@/lib/imageEngine';
 import {
   DEFAULT_PARAMS,
@@ -25,6 +27,8 @@ import {
   type SplitTone,
 } from '@/rules/params';
 import { PRESETS, applyPresetGuards, type Preset } from '@/rules/presets';
+import { loadCustomPresets, saveCustomPresets } from '@/rules/customPresets';
+import { downloadXmpPreset } from '@/rules/xmpExport';
 import type { CubeLutData } from '@/rules/cubeImport';
 import {
   DemoLimitReachedError,
@@ -39,6 +43,7 @@ import {
 } from '@/lib/geminiApi';
 
 const PREVIEW_MAX_SIDE = 2048;
+const BUILTIN_PRESET_IDS = new Set(PRESETS.map((p) => p.id));
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -47,16 +52,75 @@ export default function App() {
 
   const [ready, setReady] = useState(false);
   const [previewSrc, setPreviewSrc] = useState<HTMLCanvasElement | null>(null);
+  const originalPreviewUrl = useMemo(
+    () => (previewSrc ? previewSrc.toDataURL('image/jpeg', 0.9) : null),
+    [previewSrc],
+  );
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
-  // Danh sách preset (bao gồm các preset mặc định, preset .xmp, 3D LUT .cube và AI gợi ý)
-  const [presets, setPresets] = useState<Preset[]>(PRESETS);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  // Danh sách preset (bao gồm mặc định + preset đã lưu trong localStorage)
+  const [presets, setPresets] = useState<Preset[]>(() => [
+    ...PRESETS,
+    ...loadCustomPresets(),
+  ]);
   // panel giữ giá trị preset gốc (không scale theo Cường độ)
   const [panel, setPanel] = useState<EditParams>(() => clampParams(DEFAULT_PARAMS));
   const [splitTone, setSplitTone] = useState<SplitTone | null>(null);
   const [activePresetId, setActivePresetId] = useState<string | null>('original');
   const [intensity, setIntensity] = useState(1);
   const [showOriginal, setShowOriginal] = useState(false);
+
+  // Lịch sử Undo / Redo cho panel
+  const [history, setHistory] = useState<EditParams[]>(() => [clampParams(DEFAULT_PARAMS)]);
+  const [historyIndex, setHistoryIndex] = useState(0);
+  const historyTimerRef = useRef<number | null>(null);
+
+  const pushHistory = useCallback((nextParams: EditParams, immediate = false) => {
+    const commit = () => {
+      setHistory((prev) => {
+        const sliced = prev.slice(0, historyIndex + 1);
+        const last = sliced[sliced.length - 1];
+        if (last && paramsEqual(last, nextParams)) return prev;
+        const updated = [...sliced, nextParams].slice(-30);
+        setHistoryIndex(updated.length - 1);
+        return updated;
+      });
+    };
+
+    if (historyTimerRef.current) {
+      window.clearTimeout(historyTimerRef.current);
+      historyTimerRef.current = null;
+    }
+
+    if (immediate) {
+      commit();
+    } else {
+      historyTimerRef.current = window.setTimeout(commit, 350);
+    }
+  }, [historyIndex]);
+
+  const canUndo = historyIndex > 0;
+  const canRedo = historyIndex < history.length - 1;
+
+  const handleUndo = useCallback(() => {
+    if (!canUndo) return;
+    const prevIdx = historyIndex - 1;
+    setHistoryIndex(prevIdx);
+    setPanel(history[prevIdx]);
+  }, [canUndo, history, historyIndex]);
+
+  const handleRedo = useCallback(() => {
+    if (!canRedo) return;
+    const nextIdx = historyIndex + 1;
+    setHistoryIndex(nextIdx);
+    setPanel(history[nextIdx]);
+  }, [canRedo, history, historyIndex]);
+
+  // Tự động lưu các preset cá nhân vào localStorage
+  useEffect(() => {
+    saveCustomPresets(presets, BUILTIN_PRESET_IDS);
+  }, [presets]);
 
   // Cài đặt API key & Trạng thái gọi AI
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -319,9 +383,14 @@ export default function App() {
 
   const handleParamChange = useCallback(
     (key: keyof EditParams, value: number) => {
-      setPanel((prev) => clampParams({ ...prev, [key]: value }));
+      if (key === 'hsl') return;
+      setPanel((prev) => {
+        const next = clampParams({ ...prev, [key]: value });
+        pushHistory(next, false);
+        return next;
+      });
     },
-    [],
+    [pushHistory],
   );
 
   const handleHslChange = useCallback(
@@ -333,10 +402,12 @@ export default function App() {
       setPanel((prev) => {
         const next = clampParams(prev);
         next.hsl[channel][field] = value;
-        return clampParams(next);
+        const clamped = clampParams(next);
+        pushHistory(clamped, false);
+        return clamped;
       });
     },
-    [],
+    [pushHistory],
   );
 
   const handleResetAll = useCallback(() => {
@@ -344,27 +415,57 @@ export default function App() {
       ? (activePreset.id ? applyPresetGuards(activePreset.params, activePreset.id) : clampParams(activePreset.params))
       : clampParams(DEFAULT_PARAMS);
     setPanel(base);
-  }, [activePreset]);
+    pushHistory(base, true);
+  }, [activePreset, pushHistory]);
 
-  const handleExport = useCallback(async () => {
-    const img = fullImageRef.current;
-    if (!img || exporting) return;
-    setExporting(true);
-    try {
-      const lut = activePreset?.lut;
-      if (lut) {
-        await exportImage(img, clampParams(DEFAULT_PARAMS), intensity, null, lut);
-      } else {
-        const effective = computeEffectiveParams(panel, intensity);
-        const effectiveTone = computeEffectiveSplitTone(splitTone, intensity);
-        await exportImage(img, effective, 1, effectiveTone, null);
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Không xuất được ảnh');
-    } finally {
-      setExporting(false);
+  const handleSavePreset = useCallback(() => {
+    const customCount = presets.filter((p) => !BUILTIN_PRESET_IDS.has(p.id)).length + 1;
+    const nameInput = window.prompt('Đặt tên cho Preset mới:', `Màu của tôi #${customCount}`);
+    if (!nameInput || !nameInput.trim()) return;
+    const newPreset: Preset = {
+      id: `custom-${Date.now()}`,
+      name: nameInput.trim().slice(0, 30),
+      params: clampParams(panel),
+      splitTone: splitTone ?? undefined,
+    };
+    setPresets((prev) => [...prev, newPreset]);
+    setActivePresetId(newPreset.id);
+  }, [panel, presets, splitTone]);
+
+  const handleDeletePreset = useCallback((id: string) => {
+    setPresets((prev) => prev.filter((p) => p.id !== id));
+    if (activePresetId === id) {
+      setActivePresetId('original');
+      const base = clampParams(DEFAULT_PARAMS);
+      setPanel(base);
+      setSplitTone(null);
+      pushHistory(base, true);
     }
-  }, [panel, intensity, splitTone, exporting, activePreset]);
+  }, [activePresetId, pushHistory]);
+
+  const handleConfirmExport = useCallback(
+    async (options: ExportOptions) => {
+      const img = fullImageRef.current;
+      if (!img || exporting) return;
+      setExporting(true);
+      try {
+        const lut = activePreset?.lut;
+        if (lut) {
+          await exportImage(img, clampParams(DEFAULT_PARAMS), intensity, null, lut, options);
+        } else {
+          const effective = computeEffectiveParams(panel, intensity);
+          const effectiveTone = computeEffectiveSplitTone(splitTone, intensity);
+          await exportImage(img, effective, 1, effectiveTone, null, options);
+        }
+        setExportModalOpen(false);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Không xuất được ảnh');
+      } finally {
+        setExporting(false);
+      }
+    },
+    [panel, intensity, splitTone, exporting, activePreset],
+  );
 
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-zinc-100 text-zinc-900">
@@ -373,11 +474,33 @@ export default function App() {
           <h1 className="text-[17px] font-bold tracking-tight text-zinc-900">Studio Màu</h1>
           <p className="text-[12px] text-zinc-500">Chỉnh màu ảnh ngay trên máy của bạn</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           {ready && (
-            <span className="rounded-full border border-zinc-200 bg-zinc-100 px-2.5 py-1 text-[11px] font-medium text-zinc-600">
-              {fullImageRef.current?.naturalWidth}×{fullImageRef.current?.naturalHeight}
-            </span>
+            <>
+              <button
+                type="button"
+                onClick={handleUndo}
+                disabled={!canUndo}
+                className="flex h-8 w-8 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-600 shadow-2xs hover:bg-zinc-50 hover:text-zinc-900 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                title="Hoàn tác"
+                aria-label="Hoàn tác"
+              >
+                <Undo2 size={15} />
+              </button>
+              <button
+                type="button"
+                onClick={handleRedo}
+                disabled={!canRedo}
+                className="flex h-8 w-8 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-600 shadow-2xs hover:bg-zinc-50 hover:text-zinc-900 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                title="Làm lại"
+                aria-label="Làm lại"
+              >
+                <Redo2 size={15} />
+              </button>
+              <span className="hidden sm:inline-block rounded-full border border-zinc-200 bg-zinc-100 px-2.5 py-1 text-[11px] font-medium text-zinc-600">
+                {fullImageRef.current?.naturalWidth}×{fullImageRef.current?.naturalHeight}
+              </span>
+            </>
           )}
           <button
             type="button"
@@ -395,16 +518,26 @@ export default function App() {
         <UploadZone onFile={handleFile} error={error} />
       ) : (
         <>
-          <CanvasStage canvasRef={canvasRef} showOriginal={showOriginal} />
+          <CanvasStage
+            canvasRef={canvasRef}
+            showOriginal={showOriginal}
+            originalUrl={originalPreviewUrl}
+          />
           <div className="shrink-0 space-y-3 border-t border-zinc-200/80 bg-white/95 pt-3 shadow-[0_-4px_24px_rgba(0,0,0,0.04)]">
             <div className="px-4">
               <PresetStrip
                 presets={presets}
+                builtInIds={BUILTIN_PRESET_IDS}
                 activePresetId={activePresetId}
                 params={panel}
-                onSelect={handlePresetSelect}
+                onSelect={(p, tone, id) => {
+                  handlePresetSelect(p, tone, id);
+                  pushHistory(id ? applyPresetGuards(p, id) : clampParams(p), true);
+                }}
                 onImportPreset={handleImportPreset}
                 onOpenCloneModal={() => setCloneModalOpen(true)}
+                onSavePreset={handleSavePreset}
+                onDeletePreset={handleDeletePreset}
                 onError={setError}
               />
             </div>
@@ -426,6 +559,9 @@ export default function App() {
               onParamChange={handleParamChange}
               onHslChange={handleHslChange}
               onResetAll={handleResetAll}
+              onExportXmp={() =>
+                downloadXmpPreset(panel, activePreset?.name || 'studio-mau-preset')
+              }
               resetDisabled={
                 isLutActive || (activePreset ? paramsEqual(panel, activePreset.params) : false)
               }
@@ -434,7 +570,7 @@ export default function App() {
             <ControlsPanel
               intensity={intensity}
               onIntensityChange={setIntensity}
-              onExport={handleExport}
+              onExport={() => setExportModalOpen(true)}
               onHoldOriginal={setShowOriginal}
               exporting={exporting}
               showOriginal={showOriginal}
@@ -443,6 +579,22 @@ export default function App() {
           </div>
         </>
       )}
+
+      {/* Modal Xuất ảnh */}
+      <ExportModal
+        isOpen={exportModalOpen}
+        onClose={() => setExportModalOpen(false)}
+        onConfirmExport={handleConfirmExport}
+        exporting={exporting}
+        originalSize={
+          fullImageRef.current
+            ? {
+                width: fullImageRef.current.naturalWidth,
+                height: fullImageRef.current.naturalHeight,
+              }
+            : null
+        }
+      />
 
       {/* Modal Cài đặt */}
       <SettingsModal

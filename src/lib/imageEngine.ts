@@ -466,27 +466,85 @@ export function downscaleCanvas(
   return canvas;
 }
 
+export type ExportPresetSize = 'original' | 'tiktok' | 'fb_portrait' | 'square' | 'landscape';
+export type ExportFitMode = 'cover' | 'contain';
+export type ExportFormat = 'jpeg' | 'png';
+
+export interface ExportOptions {
+  size: ExportPresetSize;
+  fitMode: ExportFitMode;
+  format: ExportFormat;
+}
+
+const EXPORT_DIMENSIONS: Record<Exclude<ExportPresetSize, 'original'>, { width: number; height: number; tag: string }> = {
+  tiktok: { width: 1080, height: 1920, tag: 'tiktok-9x16' },
+  fb_portrait: { width: 1080, height: 1350, tag: 'fb-4x5' },
+  square: { width: 1080, height: 1080, tag: 'vuong-1x1' },
+  landscape: { width: 1920, height: 1080, tag: 'ngang-16x9' },
+};
+
 export async function exportImage(
   img: HTMLImageElement,
   params: EditParams,
   intensity: number,
   splitTone: SplitTone | null,
   lut?: CubeLutData | null,
+  options: ExportOptions = { size: 'original', fitMode: 'cover', format: 'jpeg' },
 ): Promise<void> {
-  const canvas = document.createElement('canvas');
-  canvas.width = img.naturalWidth;
-  canvas.height = img.naturalHeight;
-  const engine = new ImageEngine(canvas, img);
+  const sourceCanvas = document.createElement('canvas');
+  sourceCanvas.width = img.naturalWidth;
+  sourceCanvas.height = img.naturalHeight;
+  const engine = new ImageEngine(sourceCanvas, img);
   try {
     engine.render(params, intensity, splitTone, lut);
+
+    let finalCanvas: HTMLCanvasElement = sourceCanvas;
+    let fileTag = 'goc';
+
+    if (options.size !== 'original') {
+      const target = EXPORT_DIMENSIONS[options.size];
+      fileTag = target.tag;
+      const out = document.createElement('canvas');
+      out.width = target.width;
+      out.height = target.height;
+      const ctx = out.getContext('2d');
+      if (!ctx) throw new Error('Không tạo được canvas xuất ảnh');
+
+      const srcW = sourceCanvas.width;
+      const srcH = sourceCanvas.height;
+
+      if (options.fitMode === 'cover') {
+        const scale = Math.max(target.width / srcW, target.height / srcH);
+        const drawW = srcW * scale;
+        const drawH = srcH * scale;
+        const dx = (target.width - drawW) / 2;
+        const dy = (target.height - drawH) / 2;
+        ctx.drawImage(sourceCanvas, dx, dy, drawW, drawH);
+      } else {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, target.width, target.height);
+        const scale = Math.min(target.width / srcW, target.height / srcH);
+        const drawW = srcW * scale;
+        const drawH = srcH * scale;
+        const dx = (target.width - drawW) / 2;
+        const dy = (target.height - drawH) / 2;
+        ctx.drawImage(sourceCanvas, dx, dy, drawW, drawH);
+      }
+      finalCanvas = out;
+    }
+
+    const mime = options.format === 'png' ? 'image/png' : 'image/jpeg';
+    const ext = options.format === 'png' ? 'png' : 'jpg';
+    const quality = options.format === 'png' ? undefined : 0.92;
+
     const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, 'image/jpeg', 0.92),
+      finalCanvas.toBlob(resolve, mime, quality),
     );
     if (!blob) throw new Error('Không xuất được ảnh');
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `da-chinh-sua-${Date.now()}.jpg`;
+    a.download = `studio-mau-${fileTag}-${Date.now()}.${ext}`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   } finally {
