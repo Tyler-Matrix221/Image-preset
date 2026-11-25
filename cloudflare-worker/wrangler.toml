@@ -1,12 +1,12 @@
 name = "studio-mau-gemini-proxy"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
+workers_dev = true
+preview_urls = false
 
 [vars]
 DAILY_LIMIT = "5"
 
-# Sau khi chạy: npx wrangler kv namespace create RATE_LIMIT_KV
-# hãy bỏ comment và điền id vào bên dưới:
-# [[kv_namespaces]]
-# binding = "RATE_LIMIT_KV"
-# id = "YOUR_KV_NAMESPACE_ID"
+[[kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+id = "03968c9ffa864c2a92fe956c85f95edc"
