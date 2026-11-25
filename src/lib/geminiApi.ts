@@ -644,6 +644,28 @@ Example response format:
   return params;
 }
 
+export interface Point2D {
+  x: number;
+  y: number;
+}
+
+export interface DynamicSkeleton {
+  head: Point2D;
+  neck: Point2D;
+  lShoulder: Point2D;
+  rShoulder: Point2D;
+  lElbow: Point2D;
+  rElbow: Point2D;
+  lWrist: Point2D;
+  rWrist: Point2D;
+  lHip: Point2D;
+  rHip: Point2D;
+  lKnee: Point2D;
+  rKnee: Point2D;
+  lAnkle: Point2D;
+  rAnkle: Point2D;
+}
+
 export interface PoseSuggestion {
   poseId: string;
   tip: string;
@@ -651,6 +673,7 @@ export interface PoseSuggestion {
   yPercent: number;
   scale: number;
   flipHorizontal?: boolean;
+  skeleton?: DynamicSkeleton;
 }
 
 export interface SuggestedCrop {
@@ -731,7 +754,10 @@ Analyze Image 1 carefully and return practical, easy-to-follow guidance in VIETN
    - "xPercent": number 18..82 (horizontal % of Image 1 width where the center of the person should stand; 0=left edge of Image 1, 100=right edge of Image 1). CRITICAL: If "tip" mentions standing next to a chair/table/railing, place "xPercent" BESIDE that object (never directly on top of the chair!), on open floor space.
    - "yPercent": number 42..75 (vertical % of Image 1 height for the center of the person; keep feet grounded naturally on the floor/ground, NOT floating above furniture!).
    - "scale": number 0.55..1.15 (realistic human height relative to Image 1 height)
-   - "flipHorizontal": boolean. Follow the photography Lead Room rule: if the person stands on the left side (xPercent < 50), orient them facing/leaning toward the center-right background; if on the right side (xPercent > 50), orient them toward center-left. Set true to mirror the SVG drawing horizontally when needed so the model faces toward the open frame center.
+   - "flipHorizontal": boolean. Follow the photography Lead Room rule: if the person stands on the left side (xPercent < 50), orient them facing/leaning toward the center-right background; if on the right side (xPercent > 50), orient them toward center-left.
+   - "skeleton": An object of 14 anatomical body joint coordinates in Image 1 (% of Image 1 width x=0..100 and height y=0..100) so the app can draw a custom flexible pose outline directly interacting with furniture/ground in Image 1 (e.g. sitting ON a chair, resting a hand ON a railing/armrest, standing BESIDE a chair with feet on the floor). Keys required:
+     "head", "neck", "lShoulder", "rShoulder", "lElbow", "rElbow", "lWrist", "rWrist", "lHip", "rHip", "lKnee", "rKnee", "lAnkle", "rAnkle", each as {"x": number, "y": number}.
+     Make sure proportions are realistic human anatomy and match your "tip" text!
 5. "suggestedCrop": Propose a cleaner framing crop box on Image 1 so the photographer can see the ideal composition (removing messy edges, zooming closer to the main background/chair/anchor, placing key elements on the rule-of-thirds):
    - "xPercent": number 0..45 (left edge of crop box as % of Image 1 width)
    - "yPercent": number 0..45 (top edge of crop box as % of Image 1 height)
@@ -791,6 +817,24 @@ CRITICAL RULES:
   const validIds = new Set(POSE_TEMPLATES.map((p) => p.id));
   const rawPoses: any[] = Array.isArray(parsed?.poses) ? parsed.poses : [];
 
+  const parseSkeleton = (raw: any): DynamicSkeleton | undefined => {
+    if (!raw || typeof raw !== 'object') return undefined;
+    const keys: (keyof DynamicSkeleton)[] = [
+      'head', 'neck', 'lShoulder', 'rShoulder', 'lElbow', 'rElbow',
+      'lWrist', 'rWrist', 'lHip', 'rHip', 'lKnee', 'rKnee', 'lAnkle', 'rAnkle',
+    ];
+    const out: any = {};
+    for (const k of keys) {
+      const pt = raw[k];
+      if (!pt || typeof pt.x !== 'number' || typeof pt.y !== 'number') return undefined;
+      out[k] = {
+        x: Math.min(96, Math.max(4, pt.x)),
+        y: Math.min(96, Math.max(4, pt.y)),
+      };
+    }
+    return out as DynamicSkeleton;
+  };
+
   const poses: PoseSuggestion[] = rawPoses
     .filter((item) => item && validIds.has(String(item.poseId)))
     .slice(0, 4)
@@ -804,6 +848,7 @@ CRITICAL RULES:
       yPercent: Math.min(78, Math.max(25, Number(item.yPercent) || 54)),
       scale: Math.min(1.3, Math.max(0.55, Number(item.scale) || 0.9)),
       flipHorizontal: Boolean(item.flipHorizontal),
+      skeleton: parseSkeleton(item.skeleton),
     }));
 
   if (poses.length === 0) {

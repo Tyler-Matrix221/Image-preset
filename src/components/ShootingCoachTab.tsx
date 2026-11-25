@@ -21,6 +21,7 @@ import {
   hasAiAccess,
   hasDemoProxy,
   type DemoQuota,
+  type DynamicSkeleton,
   type PoseSuggestion,
   type ShootingGuideResult,
   type SuggestedCrop,
@@ -58,11 +59,12 @@ export default function ShootingCoachTab({
   const [croppedFile, setCroppedFile] = useState<File | null>(null);
   const [cropPreviewActive, setCropPreviewActive] = useState(false);
 
-  // Khung dáng đang chọn & vị trí kéo thả trên ảnh
+  // Khung dáng đang chọn & vị trí kéo thả trên ảnh (mặc định ẩn khi mới tải ảnh)
   const [selectedPoseId, setSelectedPoseId] = useState<string>(POSE_TEMPLATES[0].id);
   const [posePos, setPosePos] = useState({ x: 50, y: 54, scale: 0.9 });
+  const [skeletonOffset, setSkeletonOffset] = useState({ dx: 0, dy: 0 });
   const [flipPose, setFlipPose] = useState(false);
-  const [showOverlay, setShowOverlay] = useState(true);
+  const [showOverlay, setShowOverlay] = useState(false);
   const [showAllPoses, setShowAllPoses] = useState(false);
 
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -72,6 +74,7 @@ export default function ShootingCoachTab({
   const stageRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const draggingPoseRef = useRef(false);
+  const dragStartRef = useRef<{ x: number; y: number } | null>(null);
   const [imgBoxSize, setImgBoxSize] = useState<{ width: number; height: number } | null>(null);
 
   // Đồng bộ kích thước stageRef khớp chính xác 100% với khung ảnh thật (không tính viền đen)
@@ -113,8 +116,10 @@ export default function ShootingCoachTab({
     setCroppedUrl(null);
     setCroppedFile(null);
     setCropPreviewActive(false);
+    setShowOverlay(false);
     setGuide(null);
     setPosePos({ x: 50, y: 54, scale: 0.9 });
+    setSkeletonOffset({ dx: 0, dy: 0 });
 
     const exif = await readBasicExif(file);
     setSceneExif(exif);
@@ -207,6 +212,7 @@ export default function ShootingCoachTab({
         const first = result.poses[0];
         setSelectedPoseId(first.poseId);
         setPosePos({ x: first.xPercent, y: first.yPercent, scale: first.scale });
+        setSkeletonOffset({ dx: 0, dy: 0 });
         setFlipPose(Boolean(first.flipHorizontal));
       }
     } catch (err) {
@@ -250,6 +256,7 @@ export default function ShootingCoachTab({
   const handleSelectAiPose = (p: PoseSuggestion) => {
     setSelectedPoseId(p.poseId);
     setFlipPose(Boolean(p.flipHorizontal));
+    setSkeletonOffset({ dx: 0, dy: 0 });
     const base = { x: p.xPercent, y: p.yPercent, scale: p.scale };
     if (cropPreviewActive && guide?.suggestedCrop) {
       setPosePos(remapPoseForCrop(base, guide.suggestedCrop, true));
@@ -261,6 +268,7 @@ export default function ShootingCoachTab({
 
   const handleSelectLibraryPose = (p: PoseTemplate) => {
     setSelectedPoseId(p.id);
+    setSkeletonOffset({ dx: 0, dy: 0 });
     setShowOverlay(true);
   };
 
@@ -269,6 +277,18 @@ export default function ShootingCoachTab({
     if (!el) return;
     const rect = el.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
+
+    if (activeAiPose?.skeleton && !showAllPoses && dragStartRef.current) {
+      const dxPct = ((clientX - dragStartRef.current.x) / rect.width) * 100;
+      const dyPct = ((clientY - dragStartRef.current.y) / rect.height) * 100;
+      dragStartRef.current = { x: clientX, y: clientY };
+      setSkeletonOffset((prev) => ({
+        dx: Math.min(45, Math.max(-45, prev.dx + dxPct)),
+        dy: Math.min(45, Math.max(-45, prev.dy + dyPct)),
+      }));
+      return;
+    }
+
     const x = Math.min(88, Math.max(12, ((clientX - rect.left) / rect.width) * 100));
     const y = Math.min(85, Math.max(15, ((clientY - rect.top) / rect.height) * 100));
     setPosePos((prev) => ({ ...prev, x, y }));
@@ -360,8 +380,11 @@ export default function ShootingCoachTab({
               onPointerDown={(e) => {
                 if (!showOverlay) return;
                 draggingPoseRef.current = true;
+                dragStartRef.current = { x: e.clientX, y: e.clientY };
                 e.currentTarget.setPointerCapture(e.pointerId);
-                updatePoseDrag(e.clientX, e.clientY);
+                if (!activeAiPose?.skeleton || showAllPoses) {
+                  updatePoseDrag(e.clientX, e.clientY);
+                }
               }}
               onPointerMove={(e) => {
                 if (!draggingPoseRef.current || !showOverlay) return;
@@ -369,9 +392,11 @@ export default function ShootingCoachTab({
               }}
               onPointerUp={() => {
                 draggingPoseRef.current = false;
+                dragStartRef.current = null;
               }}
               onPointerCancel={() => {
                 draggingPoseRef.current = false;
+                dragStartRef.current = null;
               }}
               className={`relative flex items-center justify-center overflow-hidden rounded-xl select-none ${
                 imgBoxSize ? '' : 'max-h-full max-w-full'
@@ -421,8 +446,84 @@ export default function ShootingCoachTab({
                 </div>
               )}
 
-              {/* Lớp khung dáng nét trắng giống Huawei AI Pose */}
-              {showOverlay && (
+              {/* Lớp khung dáng nét trắng: ưu tiên Dynamic Skeleton từ AI nếu có */}
+              {showOverlay && activeAiPose?.skeleton && !showAllPoses ? (
+                (() => {
+                  const sk: DynamicSkeleton = activeAiPose.skeleton;
+                  const boxW = imgBoxSize?.width || 300;
+                  const boxH = imgBoxSize?.height || 400;
+                  const sc = cropPreviewActive ? guide?.suggestedCrop : undefined;
+                  const centerX = sc
+                    ? ((sk.neck.x - sc.xPercent) / sc.widthPercent) * 100
+                    : sk.neck.x;
+
+                  const mapPt = (pt: { x: number; y: number }) => {
+                    let px = sc ? ((pt.x - sc.xPercent) / sc.widthPercent) * 100 : pt.x;
+                    const py = sc ? ((pt.y - sc.yPercent) / sc.heightPercent) * 100 : pt.y;
+                    if (flipPose) {
+                      px = centerX - (px - centerX);
+                    }
+                    return {
+                      x: ((px + skeletonOffset.dx) / 100) * boxW,
+                      y: ((py + skeletonOffset.dy) / 100) * boxH,
+                    };
+                  };
+
+                  const pHead = mapPt(sk.head);
+                  const pNeck = mapPt(sk.neck);
+                  const pLS = mapPt(sk.lShoulder);
+                  const pRS = mapPt(sk.rShoulder);
+                  const pLE = mapPt(sk.lElbow);
+                  const pRE = mapPt(sk.rElbow);
+                  const pLW = mapPt(sk.lWrist);
+                  const pRW = mapPt(sk.rWrist);
+                  const pLH = mapPt(sk.lHip);
+                  const pRH = mapPt(sk.rHip);
+                  const pLK = mapPt(sk.lKnee);
+                  const pRK = mapPt(sk.rKnee);
+                  const pLA = mapPt(sk.lAnkle);
+                  const pRA = mapPt(sk.rAnkle);
+
+                  const shoulderW = Math.hypot(pRS.x - pLS.x, pRS.y - pLS.y);
+                  const headR = Math.max(8, Math.min(26, shoulderW * 0.34));
+
+                  return (
+                    <svg
+                      viewBox={`0 0 ${boxW} ${boxH}`}
+                      className="pointer-events-none absolute inset-0 h-full w-full drop-shadow-[0_2px_6px_rgba(0,0,0,0.85)]"
+                      fill="none"
+                    >
+                      <circle cx={pHead.x} cy={pHead.y} r={headR} stroke="rgba(255,255,255,0.95)" strokeWidth="2.8" />
+                      <path
+                        d={`M${pHead.x},${pHead.y + headR} L${pNeck.x},${pNeck.y}`}
+                        stroke="rgba(255,255,255,0.95)"
+                        strokeWidth="2.8"
+                        strokeLinecap="round"
+                      />
+                      <path
+                        d={`M${pLS.x},${pLS.y} L${pRS.x},${pRS.y} L${pRH.x},${pRH.y} L${pLH.x},${pLH.y} Z`}
+                        stroke="rgba(255,255,255,0.95)"
+                        strokeWidth="2.8"
+                        strokeLinejoin="round"
+                      />
+                      <path
+                        d={`M${pLS.x},${pLS.y} L${pLE.x},${pLE.y} L${pLW.x},${pLW.y} M${pRS.x},${pRS.y} L${pRE.x},${pRE.y} L${pRW.x},${pRW.y}`}
+                        stroke="rgba(255,255,255,0.95)"
+                        strokeWidth="2.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                      <path
+                        d={`M${pLH.x},${pLH.y} L${pLK.x},${pLK.y} L${pLA.x},${pLA.y} M${pRH.x},${pRH.y} L${pRK.x},${pRK.y} L${pRA.x},${pRA.y}`}
+                        stroke="rgba(255,255,255,0.95)"
+                        strokeWidth="2.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  );
+                })()
+              ) : showOverlay ? (
                 <div
                   className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2"
                   style={{
@@ -459,7 +560,7 @@ export default function ShootingCoachTab({
                     ))}
                   </svg>
                 </div>
-              )}
+              ) : null}
 
               {/* Dòng hướng dẫn tạo dáng cho model đọc */}
               {showOverlay && (
