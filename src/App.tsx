@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Camera, Palette, Redo2, Settings, Undo2 } from 'lucide-react';
+import { Camera, LogIn, LogOut, Palette, Redo2, Settings, Undo2 } from 'lucide-react';
 import CanvasStage from '@/components/CanvasStage';
 import ControlsPanel from '@/components/ControlsPanel';
 import AdjustPanel from '@/components/AdjustPanel';
@@ -42,6 +42,12 @@ import {
   requestAiColorSuggestion,
   type DemoQuota,
 } from '@/lib/geminiApi';
+import {
+  signInWithGoogle,
+  signOutUser,
+  subscribeAuth,
+  type AuthUser,
+} from '@/lib/firebaseAuth';
 
 const PREVIEW_MAX_SIDE = 2048;
 const BUILTIN_PRESET_IDS = new Set(PRESETS.map((p) => p.id));
@@ -124,13 +130,21 @@ export default function App() {
     saveCustomPresets(presets, BUILTIN_PRESET_IDS);
   }, [presets]);
 
-  // Cài đặt API key & Trạng thái gọi AI
+  // Cài đặt API key, Tài khoản & Trạng thái gọi AI
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [cloneModalOpen, setCloneModalOpen] = useState(false);
   const [hasApiKey, setHasApiKey] = useState(() => Boolean(getStoredApiKey()));
   const [demoQuota, setDemoQuota] = useState<DemoQuota | null>(() => getDemoQuota());
   const [limitNotice, setLimitNotice] = useState<string | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
+
+  useEffect(() => {
+    return subscribeAuth((user) => {
+      setAuthUser(user);
+    });
+  }, []);
 
   useEffect(() => {
     if (!hasApiKey && hasDemoProxy()) {
@@ -138,7 +152,28 @@ export default function App() {
         if (q) setDemoQuota(q);
       });
     }
-  }, [hasApiKey]);
+  }, [hasApiKey, authUser?.uid]);
+
+  const handleSignIn = useCallback(async () => {
+    if (authLoading) return;
+    setAuthLoading(true);
+    try {
+      await signInWithGoogle();
+      setLimitNotice(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Đăng nhập Google thất bại');
+    } finally {
+      setAuthLoading(false);
+    }
+  }, [authLoading]);
+
+  const handleSignOut = useCallback(async () => {
+    try {
+      await signOutUser();
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const activePreset = presets.find((p) => p.id === activePresetId);
   const isLutActive = Boolean(activePreset?.lut);
@@ -508,6 +543,47 @@ export default function App() {
                   {fullImageRef.current?.naturalWidth}×{fullImageRef.current?.naturalHeight}
                 </span>
               </>
+            )}
+            {authUser ? (
+              <div className="flex items-center gap-1 rounded-xl border border-zinc-200 bg-white pl-1.5 pr-1 py-0.5 shadow-2xs">
+                {authUser.photoURL ? (
+                  <img
+                    src={authUser.photoURL}
+                    alt={authUser.displayName || 'Avatar'}
+                    className="h-6 w-6 rounded-full object-cover"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-100 text-[11px] font-bold text-amber-800">
+                    {(authUser.displayName || authUser.email || 'U')[0].toUpperCase()}
+                  </span>
+                )}
+                <span className="hidden sm:inline max-w-[100px] truncate px-1 text-[11.5px] font-medium text-zinc-700">
+                  {authUser.displayName?.split(' ')[0] || authUser.email?.split('@')[0]}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  className="flex h-6 w-6 items-center justify-center rounded-lg text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 transition-colors"
+                  title={`Đăng xuất (${authUser.email || authUser.displayName || 'Tài khoản'})`}
+                  aria-label="Đăng xuất"
+                >
+                  <LogOut size={13} />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={handleSignIn}
+                disabled={authLoading}
+                className="flex h-8 items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-2.5 text-[12px] font-medium text-zinc-700 shadow-2xs hover:bg-zinc-50 hover:text-zinc-900 disabled:opacity-50 transition-colors"
+                title="Đăng nhập Google để nhận 15 lượt AI/ngày"
+              >
+                <LogIn size={14} />
+                <span className="hidden xs:inline sm:inline">
+                  {authLoading ? 'Đang vào...' : 'Đăng nhập'}
+                </span>
+              </button>
             )}
             <button
               type="button"

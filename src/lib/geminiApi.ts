@@ -10,6 +10,7 @@ import {
 } from '@/rules/params';
 import { POSE_TEMPLATES } from '@/rules/poseTemplates';
 import type { PhotoExif } from '@/lib/exifReader';
+import { getFirebaseIdToken } from '@/lib/firebaseAuth';
 
 export const GEMINI_STORAGE_KEY = 'gemini_api_key';
 
@@ -45,10 +46,22 @@ export function getDemoQuota(): DemoQuota | null {
   return cachedDemoQuota;
 }
 
+async function buildProxyHeaders(
+  extra?: Record<string, string>,
+): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { ...(extra || {}) };
+  const token = await getFirebaseIdToken();
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return headers;
+}
+
 export async function fetchDemoQuota(): Promise<DemoQuota | null> {
   if (!DEMO_PROXY_URL) return null;
   try {
-    const res = await fetch(`${DEMO_PROXY_URL}/quota`);
+    const headers = await buildProxyHeaders();
+    const res = await fetch(`${DEMO_PROXY_URL}/quota`, { headers });
     if (!res.ok) return null;
     const data = await res.json();
     if (typeof data?.limit === 'number' && typeof data?.remaining === 'number') {
@@ -222,11 +235,12 @@ async function callGeminiFlash(payload: any, apiKey: string): Promise<string> {
     const timeoutTimer = setTimeout(() => controller.abort(), PER_MODEL_TIMEOUT_MS);
 
     try {
+      const headers = useProxy
+        ? await buildProxyHeaders({ 'Content-Type': 'application/json' })
+        : { 'Content-Type': 'application/json' };
       response = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify(useProxy ? { model, payload } : payload),
         signal: controller.signal,
       });
@@ -321,9 +335,10 @@ async function callGeminiFlash(payload: any, apiKey: string): Promise<string> {
     const fbController = new AbortController();
     const fbTimer = setTimeout(() => fbController.abort(), 45000);
     try {
+      const fbHeaders = await buildProxyHeaders({ 'Content-Type': 'application/json' });
       const fbRes = await fetch(`${DEMO_PROXY_URL}/vision-fallback`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: fbHeaders,
         body: JSON.stringify({ payload }),
         signal: fbController.signal,
       });
@@ -1071,9 +1086,10 @@ export async function generatePosePreviewImage({
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 35000);
     try {
+      const imgHeaders = await buildProxyHeaders({ 'Content-Type': 'application/json' });
       const res = await fetch(`${DEMO_PROXY_URL}/image-gen`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: imgHeaders,
         body: JSON.stringify({ prompt: genPrompt, size }),
         signal: controller.signal,
       });
