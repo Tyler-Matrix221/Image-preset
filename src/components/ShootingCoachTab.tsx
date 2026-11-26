@@ -615,16 +615,18 @@ export default function ShootingCoachTab({
                         cx={activeTemplate.head.cx}
                         cy={activeTemplate.head.cy}
                         r={activeTemplate.head.r}
-                        stroke="rgba(255,255,255,0.95)"
-                        strokeWidth="3.2"
+                        stroke="rgba(255,255,255,0.88)"
+                        strokeWidth="2.4"
+                        strokeDasharray="5 4"
                       />
                     )}
                     {activeTemplate.paths.map((d, idx) => (
                       <path
                         key={idx}
                         d={d}
-                        stroke="rgba(255,255,255,0.95)"
-                        strokeWidth="3.2"
+                        stroke="rgba(255,255,255,0.9)"
+                        strokeWidth="2.4"
+                        strokeDasharray="6 5"
                         strokeLinecap="round"
                         strokeLinejoin="round"
                       />

@@ -272,6 +272,234 @@ export const POSE_TEMPLATES: PoseTemplate[] = [
       'M132,158 L136,222 L136,282',
     ],
   },
+  {
+    id: 'sofa-lounge-crossed',
+    name: 'Ngồi sofa vắt chân',
+    category: 'Ngồi',
+    visualDescription:
+      'Relaxed lounge sitting on a sofa or armchair; torso leaning slightly back into cushion, one arm resting along sofa back/armrest, legs crossed gracefully at the knee.',
+    defaultTip:
+      'Ngồi tựa lưng thư giãn lên ghế sofa, một tay đặt nhẹ lên tay vịn hoặc đùi, hai chân bắt chéo hướng chéo về góc ảnh để tạo dáng thon gọn.',
+    samplePhotos: {
+      female: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=480&q=80',
+      male: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=480&q=80',
+    },
+    head: { cx: 108, cy: 66, r: 16 },
+    paths: [
+      'M108,82 L106,94',
+      'M84,96 Q106,90 128,98 L120,174 L86,174 Z',
+      'M84,98 L62,126 L56,158',
+      'M128,98 L144,136 L118,166',
+      'M92,174 L68,202 L84,268',
+      'M116,174 L78,196 L106,262',
+    ],
+  },
+  {
+    id: 'cafe-chin-rest',
+    name: 'Chống cằm mơ màng',
+    category: 'Ngồi',
+    visualDescription:
+      'Seated at a cafe table or counter, one elbow propped on the surface with hand lightly supporting the chin/cheek, soft head tilt toward camera.',
+    defaultTip:
+      'Tựa một khuỷu tay lên mặt bàn, bàn tay đỡ nhẹ cằm hoặc má, nghiêng đầu 15° nhìn mơ màng về phía ống kính.',
+    samplePhotos: {
+      female: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=480&q=80',
+      male: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=480&q=80',
+    },
+    head: { cx: 104, cy: 64, r: 16 },
+    paths: [
+      'M104,80 L102,92',
+      'M80,94 L126,94 L122,174 L84,174 Z',
+      'M80,96 L64,136 L94,80',
+      'M126,96 L138,142 L116,172',
+      'M34,174 L166,174',
+      'M90,174 L78,224 L80,276',
+      'M116,174 L112,224 L114,276',
+    ],
+  },
+  {
+    id: 'floor-recline',
+    name: 'Ngồi duỗi chân nghệ thuật',
+    category: 'Ngồi',
+    visualDescription:
+      'Sitting low on floor/rug/step leaning back onto one supporting hand behind, one knee bent upward and the other leg extended diagonally forward.',
+    defaultTip:
+      'Ngồi chống một tay ra sau làm điểm tựa, co nhẹ một đầu gối và duỗi thẳng chân còn lại theo đường chéo khung hình.',
+    samplePhotos: {
+      female: 'https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?auto=format&fit=crop&w=480&q=80',
+      male: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=480&q=80',
+    },
+    head: { cx: 74, cy: 102, r: 15 },
+    paths: [
+      'M78,116 L84,128',
+      'M66,130 L102,136 L112,204 L76,204 Z',
+      'M66,132 L42,174 L32,208',
+      'M102,138 L124,168 L112,196',
+      'M98,204 L126,162 L148,214',
+      'M86,204 L142,216 L178,224',
+    ],
+  },
+  {
+    id: 'barstool-perch',
+    name: 'Ngồi ghế cao / Quầy bar',
+    category: 'Ngồi',
+    visualDescription:
+      'Perched on a high barstool or counter edge, torso angled slightly, one knee bent higher on footrest and the other leg extended downward.',
+    defaultTip:
+      'Ngồi tựa nhẹ mép ghế cao, một chân gác lên thanh để chân, chân kia duỗi thẳng xuống tạo đường nét kéo dài chân.',
+    samplePhotos: {
+      female: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=480&q=80',
+      male: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=480&q=80',
+    },
+    head: { cx: 100, cy: 52, r: 16 },
+    paths: [
+      'M100,68 L100,80',
+      'M78,82 L122,82 L116,164 L84,164 Z',
+      'M78,84 L62,126 L76,160',
+      'M122,84 L138,124 L124,160',
+      'M88,164 L68,208 L78,250',
+      'M112,164 L118,224 L122,286',
+    ],
+  },
+  {
+    id: 'crossed-leg-stand',
+    name: 'Đứng bắt chéo chân',
+    category: 'Đứng',
+    visualDescription:
+      'Classic TikTok/FB full-body standing pose: weight on back leg, front leg crossed over on tiptoe to elongate silhouette, one hand on hip and other hand touching hair or bag.',
+    defaultTip:
+      'Dồn trọng tâm vào chân sau, chân trước bắt chéo kiễng nhẹ mũi chân, một tay chống hông và tay kia chạm nhẹ tóc hoặc quai túi.',
+    samplePhotos: {
+      female: 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=480&q=80',
+      male: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=480&q=80',
+    },
+    head: { cx: 100, cy: 44, r: 16 },
+    paths: [
+      'M100,60 L100,72',
+      'M76,76 Q100,70 124,76 L116,156 L84,156 Z',
+      'M76,78 L58,112 L82,144',
+      'M124,78 L144,98 L122,56',
+      'M90,156 L92,222 L92,284',
+      'M110,156 L84,220 L108,282',
+    ],
+  },
+  {
+    id: 'street-pocket-cool',
+    name: 'Đút túi / Street cool',
+    category: 'Đứng',
+    visualDescription:
+      'Confident street-style stance: weight shifted slightly to one hip, one hand tucked casually into pocket, other hand raised near collar, cap, or sunglasses.',
+    defaultTip:
+      'Thả lỏng vai, một tay đút túi quần tự nhiên, tay còn lại chạm nhẹ kính hoặc cổ áo, chân bước mở nhẹ sang bên.',
+    samplePhotos: {
+      female: 'https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=480&q=80',
+      male: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=480&q=80',
+    },
+    head: { cx: 98, cy: 44, r: 16 },
+    paths: [
+      'M98,60 L98,72',
+      'M74,76 L124,76 L118,158 L80,158 Z',
+      'M74,78 L62,122 L80,154',
+      'M124,78 L140,104 L112,62',
+      'M86,158 L78,224 L74,286',
+      'M112,158 L124,224 L132,286',
+    ],
+  },
+  {
+    id: 'wall-lean-chill',
+    name: 'Tựa tường gác chân',
+    category: 'Đứng',
+    visualDescription:
+      'Leaning one shoulder/back against a wall or doorframe, one leg straight supporting weight and the other knee bent with foot propped back against the wall.',
+    defaultTip:
+      'Tựa nhẹ một bên vai vào tường hoặc khung cửa, co một chân gác mũi giày ra sau, ánh mắt nhìn lệch tự nhiên.',
+    samplePhotos: {
+      female: 'https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?auto=format&fit=crop&w=480&q=80',
+      male: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=480&q=80',
+    },
+    head: { cx: 88, cy: 46, r: 16 },
+    paths: [
+      'M88,62 L90,74',
+      'M70,76 L114,78 L112,160 L74,160 Z',
+      'M70,78 L64,124 L76,156',
+      'M114,80 L132,120 L108,148',
+      'M84,160 L88,226 L90,286',
+      'M108,160 L132,206 L96,240',
+    ],
+  },
+  {
+    id: 's-curve-portrait',
+    name: 'Tạo dáng chữ S',
+    category: 'Chân dung',
+    visualDescription:
+      'Flattering 3/4 S-curve portrait pose: hips pushed subtly aside, shoulders angled, one hand lightly touching collarbone/shoulder, chin slightly lowered.',
+    defaultTip:
+      'Đẩy nhẹ hông sang một bên tạo đường cong chữ S, xoay vai góc 45°, một tay chạm nhẹ xương quai xanh hoặc vai.',
+    samplePhotos: {
+      female: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=480&q=80',
+      male: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=480&q=80',
+    },
+    head: { cx: 104, cy: 44, r: 16 },
+    paths: [
+      'M104,60 L102,72',
+      'M78,76 Q104,70 124,78 L112,158 L80,158 Z',
+      'M78,78 L62,120 L78,154',
+      'M124,78 L138,108 L108,84',
+      'M86,158 L80,224 L82,286',
+      'M108,158 L118,222 L114,286',
+    ],
+  },
+  {
+    id: 'sun-reach-candid',
+    name: 'Vươn tay đón nắng',
+    category: 'Chuyển động',
+    visualDescription:
+      'Dynamic candid TikTok/IG pose: turning torso slightly aside, raising one arm gracefully outward/upward toward light, soft arch in back and stepped leg.',
+    defaultTip:
+      'Xoay người đón ánh sáng, vươn nhẹ một tay lên cao hoặc sang ngang như đang đón nắng/gió, bước nhẹ một chân.',
+    samplePhotos: {
+      female: 'https://images.unsplash.com/photo-1469334031218-e382a71b716b?auto=format&fit=crop&w=480&q=80',
+      male: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=480&q=80',
+    },
+    head: { cx: 96, cy: 44, r: 16 },
+    paths: [
+      'M96,60 L98,72',
+      'M76,76 L120,74 L114,156 L82,156 Z',
+      'M76,78 L58,118 L54,154',
+      'M120,74 L148,50 L166,30',
+      'M88,156 L78,220 L70,282',
+      'M110,156 L124,220 L132,282',
+    ],
+  },
+  {
+    id: 'couple-sitting',
+    name: 'Cặp đôi ngồi tựa vai',
+    category: '2 người',
+    visualDescription:
+      'Two people seated close together on a sofa or bench; one gently leaning head toward the other shoulder, hands resting near lap or intertwined.',
+    defaultTip:
+      'Hai người ngồi sát cạnh nhau trên sofa/ghế dài, một người nghiêng đầu tựa nhẹ lên vai người kia, tay đan hoặc đặt thoải mái.',
+    samplePhotos: {
+      couple: 'https://images.unsplash.com/photo-1516589178581-6cd7833ae3b2?auto=format&fit=crop&w=480&q=80',
+      female: 'https://images.unsplash.com/photo-1516589178581-6cd7833ae3b2?auto=format&fit=crop&w=480&q=80',
+      male: 'https://images.unsplash.com/photo-1516589178581-6cd7833ae3b2?auto=format&fit=crop&w=480&q=80',
+    },
+    head: { cx: 82, cy: 76, r: 15 },
+    paths: [
+      'M82,91 L82,100',
+      'M62,102 L98,102 L96,174 L64,174 Z',
+      'M62,104 L52,144 L66,170',
+      'M70,174 L60,210 L62,272',
+      'M90,174 L84,210 L86,272',
+      'M122,52 A15,15 0 1,0 122.1,52 Z',
+      'M122,82 L122,92',
+      'M102,94 L142,94 L138,174 L104,174 Z',
+      'M102,96 L90,136 L98,168',
+      'M142,96 L150,142 L138,172',
+      'M110,174 L112,212 L114,272',
+      'M132,174 L136,212 L138,272',
+    ],
+  },
 ];
 
 export function getPoseById(id: string): PoseTemplate {

@@ -835,21 +835,23 @@ Analyze Image 1 carefully and return practical, easy-to-follow guidance in VIETN
    - "iso": e.g. "200"
    - "whiteBalance": e.g. "5400K"
    - "ev": e.g. "+0.3 EV"
-4. "poses": Create 4 DIVERSE, creative poses specifically tailored to Image 1's environment and props (e.g. sitting on the sofa/chair, leaning on a wall/table, standing beside furniture, holding a cup/prop, looking back). ${
+4. "poses": Create 4 DIVERSE, trendy poses (inspired by popular Facebook, Instagram & TikTok portrait/lifestyle photography) specifically tailored to Image 1's environment, furniture, and props (e.g. sitting on the sofa with crossed legs, leaning on a wall/table with chin on hand, standing crossed-leg beside furniture, holding a cup/prop, looking back over shoulder). ${
     previousPoseTitles && previousPoseTitles.length > 0
       ? `IMPORTANT: The user already saw these poses [${previousPoseTitles.join(', ')}]. Propose 4 COMPLETELY DIFFERENT, fresh pose variations!`
       : ''
   } For each pose provide:
-   - "poseId": closest fallback id from ALLOWED POSE IDS
-   - "poseTitle": short, catchy Vietnamese pose name (2–5 words, e.g. "Ngồi vắt chân trên sofa", "Tựa vai cạnh tủ đĩa", "Chống cằm nhìn nghiêng")
+   - "poseId": closest matching id from ALLOWED POSE IDS
+   - "poseTitle": short, catchy Vietnamese pose name (2–5 words, e.g. "Ngồi sofa vắt chân", "Chống cằm tựa bàn", "Đứng bắt chéo chân")
    - "tip": 1 short, natural Vietnamese instruction for the model.
-   - "xPercent": number 18..82 (horizontal % of Image 1 width where the center of the person should stand; 0=left edge of Image 1, 100=right edge of Image 1). CRITICAL: If "tip" mentions standing next to a chair/table/railing, place "xPercent" BESIDE that object (never directly on top of the chair!), on open floor space.
+   - "xPercent": number 18..82 (horizontal % of Image 1 width where the center of the person should be; 0=left edge of Image 1, 100=right edge of Image 1). CRITICAL: If "tip" mentions standing next to a chair/table/railing, place "xPercent" BESIDE that object (never directly on top of the chair!), on open floor space. If sitting ON a sofa/chair, center "xPercent" directly over the seat cushion.
    - "yPercent": number 42..75 (vertical % of Image 1 height for the center of the person; keep feet grounded naturally on the floor/ground, NOT floating above furniture!).
    - "scale": number 0.55..1.15 (realistic human height relative to Image 1 height)
    - "flipHorizontal": boolean. Follow the photography Lead Room rule: if the person stands on the left side (xPercent < 50), orient them facing/leaning toward the center-right background; if on the right side (xPercent > 50), orient them toward center-left.
-   - "skeleton": An object of 20 anatomical body joint coordinates in Image 1 (% of Image 1 width x=0..100 and height y=0..100) so the app can draw a natural, fluid human pose outline interacting with furniture/ground in Image 1 (e.g. sitting ON a sofa, resting a hand ON a thigh/armrest, standing BESIDE a chair).
+   - "skeleton": An object of 20 anatomical body joint coordinates in Image 1 (% of Image 1 width x=0..100 and height y=0..100) so the app can draw a natural, fluid human pose outline interacting ACCURATELY with exact surfaces in Image 1:
+     * If SITTING on a sofa/chair/bench: place "lHip" & "rHip" right on top of the visible seat cushion surface, bend "lKnee" & "rKnee" forward over the seat edge, and ground "lAnkle"/"rAnkle"/"lFoot"/"rFoot" on the floor below.
+     * If LEANING on a table/railing/armrest: place the supporting "lElbow"/"rElbow" or "lHand"/"rHand" directly on that visible edge.
+     * If STANDING: keep "lFoot" & "rFoot" planted on the visible floor plane (usually y=74..90) with realistic human limb proportions.
      Required keys: "head", "faceTarget" (gaze/chin direction point near head), "neck", "spineMid" (mid-torso waist curve point), "lShoulder", "rShoulder", "lElbow", "rElbow", "lWrist", "rWrist", "lHand" (fingertips), "rHand", "lHip", "rHip", "lKnee", "rKnee", "lAnkle", "rAnkle", "lFoot" (toes), "rFoot" — each as {"x": number, "y": number}.
-     Make sure proportions, curved spine, hand placement, and feet are realistic human anatomy matching your "tip"!
 5. "suggestedCrop": Propose a cleaner framing crop box on Image 1 so the photographer can see the ideal composition (removing messy edges, zooming closer to the main background/chair/anchor, placing key elements on the rule-of-thirds):
    - "xPercent": number 0..45 (left edge of crop box as % of Image 1 width)
    - "yPercent": number 0..45 (top edge of crop box as % of Image 1 height)
