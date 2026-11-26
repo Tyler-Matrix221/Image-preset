@@ -286,6 +286,11 @@ async function callGeminiFlash(payload: any, apiKey: string): Promise<string> {
       response.status === 400 &&
       lastErrorDetail.toLowerCase().includes('location is not supported')
     ) {
+      if (DEMO_PROXY_URL) {
+        console.warn('[Gemini API] Proxy dính vùng chưa hỗ trợ, chuyển sang Vision fallback...');
+        overloadFailures += 2;
+        continue;
+      }
       throw new Error(
         'Vùng mạng hiện tại (hoặc máy chủ Proxy/VPN) chưa được Google Gemini hỗ trợ. Hãy tắt VPN hoặc nhập trực tiếp API Key cá nhân trong Cài đặt.',
       );
@@ -299,6 +304,7 @@ async function callGeminiFlash(payload: any, apiKey: string): Promise<string> {
     }
 
     if (
+      response.status === 429 ||
       response.status === 503 ||
       lastErrorDetail.toLowerCase().includes('demand') ||
       lastErrorDetail.toLowerCase().includes('overloaded')

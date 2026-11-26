@@ -1,5 +1,6 @@
 export interface Env {
   GEMINI_API_KEY: string;
+  OPENAI_API_KEY?: string;
   XAH_API_KEY?: string;
   DAILY_LIMIT?: string;
   ALLOWED_ORIGINS?: string;
@@ -162,11 +163,14 @@ export default {
       });
     }
 
-    // Route dự phòng Vision khi Google Gemini Free Tier bị 503 quá tải
+    // Route dự phòng Vision khi Google Gemini bị 503/429/quá tải hoặc chặn vùng:
+    // Ưu tiên OpenAI gpt-4o-mini (OPENAI_API_KEY), nếu chưa cấu hình/lỗi mới dùng XAH_API_KEY
     if (url.pathname === '/vision-fallback') {
-      if (!env.XAH_API_KEY) {
+      if (!env.OPENAI_API_KEY && !env.XAH_API_KEY) {
         return new Response(
-          JSON.stringify({ error: 'Proxy chưa được cấu hình XAH_API_KEY cho Vision fallback.' }),
+          JSON.stringify({
+            error: 'Proxy chưa được cấu hình OPENAI_API_KEY hoặc XAH_API_KEY cho Vision fallback.',
+          }),
           { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } },
         );
       }
@@ -203,29 +207,51 @@ export default {
         }
       }
 
-      const xahRes = await fetch('https://api.xah.io/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${env.XAH_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'ngphatgi/gemini-3.8-flash',
-          messages: [{ role: 'user', content: contentItems }],
-          temperature: 0.3,
-        }),
-      });
+      let fallbackRes: Response | null = null;
+      let providerUsed = 'openai';
 
-      if (!xahRes.ok) {
-        const errText = await xahRes.text();
+      if (env.OPENAI_API_KEY) {
+        fallbackRes = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            messages: [{ role: 'user', content: contentItems }],
+            temperature: 0.4,
+            response_format: { type: 'json_object' },
+          }),
+        });
+      }
+
+      if ((!fallbackRes || !fallbackRes.ok) && env.XAH_API_KEY) {
+        providerUsed = 'xah';
+        fallbackRes = await fetch('https://api.xah.io/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${env.XAH_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'ngphatgi/gemini-3.8-flash',
+            messages: [{ role: 'user', content: contentItems }],
+            temperature: 0.4,
+          }),
+        });
+      }
+
+      if (!fallbackRes || !fallbackRes.ok) {
+        const errText = fallbackRes ? await fallbackRes.text() : 'Vision fallback failed';
         return new Response(errText, {
-          status: xahRes.status,
+          status: fallbackRes?.status || 502,
           headers: { ...cors, 'Content-Type': 'application/json' },
         });
       }
 
-      const xahData: any = await xahRes.json();
-      const outputText = xahData?.choices?.[0]?.message?.content || '';
+      const fbData: any = await fallbackRes.json();
+      const outputText = fbData?.choices?.[0]?.message?.content || '';
 
       let nextUsed = currentUsed;
       if (outputText && env.RATE_LIMIT_KV) {
@@ -233,7 +259,7 @@ export default {
         await env.RATE_LIMIT_KV.put(quotaKey, String(nextUsed), { expirationTtl: 86400 });
       }
 
-      return new Response(JSON.stringify({ output_text: outputText }), {
+      return new Response(JSON.stringify({ output_text: outputText, provider: providerUsed }), {
         status: 200,
         headers: {
           ...cors,
