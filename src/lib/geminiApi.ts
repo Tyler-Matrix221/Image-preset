@@ -8,6 +8,8 @@ import {
   type HslChannelKey,
   type ScalarKey,
 } from '@/rules/params';
+import { POSE_TEMPLATES } from '@/rules/poseTemplates';
+import type { PhotoExif } from '@/lib/exifReader';
 
 export const GEMINI_STORAGE_KEY = 'gemini_api_key';
 
@@ -184,9 +186,9 @@ function extractOutputText(result: any): string | null {
 
 // Danh sách các model Flash tối ưu được kiểm chứng phản hồi siêu nhanh (< 2 giây) trên Google Gemini:
 const CANDIDATE_MODELS = [
-  'gemini-2.5-flash',
   'gemini-3.5-flash-lite',
   'gemini-3.5-flash',
+  'gemini-2.5-flash',
   'gemini-3.8-flash',
 ];
 
@@ -194,7 +196,7 @@ const CANDIDATE_MODELS = [
  * Gọi Gemini REST API với cơ chế tự động chuyển model dự phòng khi model gặp sự cố.
  */
 async function callGeminiFlash(payload: any, apiKey: string): Promise<string> {
-  const PER_MODEL_TIMEOUT_MS = 15000;
+  const PER_MODEL_TIMEOUT_MS = 10000;
   const useProxy = !apiKey && Boolean(DEMO_PROXY_URL);
   if (!apiKey && !useProxy) {
     throw new Error('Vui lòng nhập Google Gemini API key trong Cài đặt trước khi dùng tính năng AI.');
@@ -203,8 +205,13 @@ async function callGeminiFlash(payload: any, apiKey: string): Promise<string> {
   let response: Response | null = null;
   let lastErrorDetail = '';
   let lastStatus = 0;
+  let overloadFailures = 0;
 
   for (const model of CANDIDATE_MODELS) {
+    if (overloadFailures >= 2 && DEMO_PROXY_URL) {
+      break;
+    }
+
     const endpoint = useProxy
       ? DEMO_PROXY_URL
       : `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(
@@ -226,11 +233,13 @@ async function callGeminiFlash(payload: any, apiKey: string): Promise<string> {
     } catch (netErr: any) {
       clearTimeout(timeoutTimer);
       if (netErr?.name === 'AbortError') {
-        console.warn(`[Gemini API] Model ${model} quá 15s. Tự động chuyển model kế tiếp...`);
+        console.warn(`[Gemini API] Model ${model} quá 10s. Tự động chuyển model kế tiếp...`);
         lastErrorDetail = 'Quá thời gian phản hồi.';
+        overloadFailures += 1;
         continue;
       }
       lastErrorDetail = 'Không thể kết nối tới Google Gemini API (Lỗi mạng).';
+      overloadFailures += 1;
       continue;
     } finally {
       clearTimeout(timeoutTimer);
@@ -273,6 +282,20 @@ async function callGeminiFlash(payload: any, apiKey: string): Promise<string> {
       );
     }
 
+    if (
+      response.status === 400 &&
+      lastErrorDetail.toLowerCase().includes('location is not supported')
+    ) {
+      if (DEMO_PROXY_URL) {
+        console.warn('[Gemini API] Proxy dính vùng chưa hỗ trợ, chuyển sang Vision fallback...');
+        overloadFailures += 2;
+        continue;
+      }
+      throw new Error(
+        'Vùng mạng hiện tại (hoặc máy chủ Proxy/VPN) chưa được Google Gemini hỗ trợ. Hãy tắt VPN hoặc nhập trực tiếp API Key cá nhân trong Cài đặt.',
+      );
+    }
+
     // Nếu key sai hoặc không có quyền (400, 401, 403), dừng ngay
     if (response.status === 400 || response.status === 401 || response.status === 403) {
       throw new Error(
@@ -280,7 +303,56 @@ async function callGeminiFlash(payload: any, apiKey: string): Promise<string> {
       );
     }
 
+    if (
+      response.status === 429 ||
+      response.status === 503 ||
+      lastErrorDetail.toLowerCase().includes('demand') ||
+      lastErrorDetail.toLowerCase().includes('overloaded')
+    ) {
+      overloadFailures += 1;
+    }
+
     console.warn(`[Gemini API] Model ${model} phản hồi ${response.status}: ${lastErrorDetail}. Đang thử model tiếp theo...`);
+  }
+
+  // Nếu Google Gemini bị 503/quá tải >= 2 lần, tự động chuyển sang Vision fallback trên api.xah.io qua Worker
+  if ((!response || !response.ok) && overloadFailures >= 2 && DEMO_PROXY_URL) {
+    console.warn('[Gemini API] Google quá tải >= 2 lần, đang chuyển sang Vision fallback (api.xah.io)...');
+    const fbController = new AbortController();
+    const fbTimer = setTimeout(() => fbController.abort(), 45000);
+    try {
+      const fbRes = await fetch(`${DEMO_PROXY_URL}/vision-fallback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payload }),
+        signal: fbController.signal,
+      });
+      clearTimeout(fbTimer);
+
+      const limitHeader = Number(fbRes.headers.get('X-RateLimit-Limit'));
+      const remHeader = Number(fbRes.headers.get('X-RateLimit-Remaining'));
+      if (Number.isFinite(limitHeader) && Number.isFinite(remHeader) && limitHeader > 0) {
+        cachedDemoQuota = { limit: limitHeader, remaining: remHeader };
+      }
+
+      if (fbRes.status === 429) {
+        const errJson = await fbRes.json().catch(() => ({}));
+        if (errJson?.code === 'DAILY_LIMIT_REACHED') {
+          cachedDemoQuota = { limit: cachedDemoQuota?.limit || 5, remaining: 0 };
+          throw new DemoLimitReachedError(
+            errJson.error ||
+              'Bạn đã dùng hết lượt AI miễn phí hôm nay. Hãy nhập Gemini API Key cá nhân hoặc quay lại vào ngày mai.',
+          );
+        }
+      }
+
+      if (fbRes.ok) {
+        response = fbRes;
+      }
+    } catch (fbErr) {
+      clearTimeout(fbTimer);
+      if (fbErr instanceof DemoLimitReachedError) throw fbErr;
+    }
   }
 
   if (!response || !response.ok) {
@@ -640,4 +712,490 @@ Example response format:
   const rawText = await callGeminiFlash(payload, key);
   const { params } = parseAndSanitizeAiParams(rawText);
   return params;
+}
+
+export interface Point2D {
+  x: number;
+  y: number;
+}
+
+export interface DynamicSkeleton {
+  head: Point2D;
+  faceTarget?: Point2D;
+  neck: Point2D;
+  spineMid?: Point2D;
+  lShoulder: Point2D;
+  rShoulder: Point2D;
+  lElbow: Point2D;
+  rElbow: Point2D;
+  lWrist: Point2D;
+  rWrist: Point2D;
+  lHand?: Point2D;
+  rHand?: Point2D;
+  lHip: Point2D;
+  rHip: Point2D;
+  lKnee: Point2D;
+  rKnee: Point2D;
+  lAnkle: Point2D;
+  rAnkle: Point2D;
+  lFoot?: Point2D;
+  rFoot?: Point2D;
+}
+
+export interface PoseSuggestion {
+  poseId: string;
+  poseTitle?: string;
+  tip: string;
+  xPercent: number;
+  yPercent: number;
+  scale: number;
+  flipHorizontal?: boolean;
+  skeleton?: DynamicSkeleton;
+}
+
+export interface SuggestedCrop {
+  xPercent: number;
+  yPercent: number;
+  widthPercent: number;
+  heightPercent: number;
+  rotateDeg: number;
+}
+
+export interface ShootingGuideResult {
+  lightingSummary: string;
+  angleAdvice: string;
+  sceneVisualPrompt?: string;
+  cameraSettings: {
+    aperture: string;
+    shutterSpeed: string;
+    iso: string;
+    whiteBalance: string;
+    ev: string;
+  };
+  poses: PoseSuggestion[];
+  suggestedCrop?: SuggestedCrop;
+}
+
+export type ModelGender = 'female' | 'male' | 'couple';
+
+export interface AnalyzeSceneOptions {
+  sceneImage: HTMLImageElement | HTMLCanvasElement;
+  referenceImage?: HTMLImageElement | HTMLCanvasElement | null;
+  exif?: PhotoExif | null;
+  modelGender?: ModelGender;
+  previousPoseTitles?: string[];
+  apiKey?: string;
+}
+
+/**
+ * Phân tích ảnh bối cảnh (kèm EXIF và ảnh mẫu góc nếu có) để gợi ý:
+ * 1. Thông số máy ảnh (Khẩu độ, Tốc độ, ISO, Cân bằng trắng, EV)
+ * 2. Góc máy & bố cục cần điều chỉnh
+ * 3. 3–4 tư thế tạo dáng phù hợp kèm tọa độ đặt khung SVG nét trắng.
+ */
+export async function analyzeShootingScene({
+  sceneImage,
+  referenceImage,
+  exif,
+  modelGender = 'female',
+  previousPoseTitles,
+  apiKey,
+}: AnalyzeSceneOptions): Promise<ShootingGuideResult> {
+  const key = (apiKey || getStoredApiKey()).trim();
+  if (!key && !DEMO_PROXY_URL) {
+    throw new Error('Vui lòng nhập Google Gemini API key trong Cài đặt trước khi dùng tính năng này.');
+  }
+
+  const thumbScene = await createGeminiThumbnail(sceneImage, 512);
+  const thumbRef = referenceImage ? await createGeminiThumbnail(referenceImage, 512) : null;
+
+  const poseCatalog = POSE_TEMPLATES.map(
+    (p) => `- "${p.id}" (${p.name}): ${p.visualDescription}`,
+  ).join('\n');
+
+  const exifNote = exif
+    ? `Current test shot EXIF metadata: ISO ${exif.iso ?? 'unknown'}, Aperture f/${exif.fNumber ?? 'unknown'}, Shutter ${exif.exposureTime ?? 'unknown'}, Focal ${exif.focalLength ?? 'unknown'}mm, Camera: ${exif.cameraModel ?? 'unknown'}.`
+    : 'No EXIF metadata available.';
+
+  const modelNote =
+    modelGender === 'male'
+      ? 'Subject is a MALE model: favor confident, relaxed masculine poses (broad shoulders, hands in pocket, leaning casually, natural knee stance).'
+      : modelGender === 'couple'
+      ? 'Subject is a COUPLE (2 people): favor natural, affectionate couple poses (including "couple-standing").'
+      : 'Subject is a FEMALE model: favor graceful, flattering feminine poses (S-curve, soft shoulder tilt, gentle hand near hair/face/prop, crossed or stepped leg).';
+
+  const promptText = `
+You are a professional portrait & lifestyle photographer coaching a beginner on location.
+Image 1 is the current SCENE / TEST SHOT taken by the user.
+${thumbRef ? 'Image 2 is a REFERENCE photo whose composition, camera angle, or pose the user wants to replicate in Image 1.' : ''}
+${exifNote}
+${modelNote}
+
+Analyze Image 1 carefully and return practical, easy-to-follow guidance in VIETNAMESE:
+1. "lightingSummary": Brief 1-sentence summary of the lighting & environment (e.g. "Nắng chiều chếch bên phải, hậu cảnh sáng").
+2. "angleAdvice": Concise 1–2 sentences telling the photographer how to adjust camera angle, distance, or framing for better balance (e.g. "Hạ máy thấp ngang hông, bước sang trái 1 bước để tránh cột phía sau và đặt chủ thể ở 1/3 phải").
+3. "sceneVisualPrompt": A concise, vivid English visual description (15–25 words) of the exact background, furniture, colors, and lighting in Image 1 (e.g. "cozy vintage indoor cafe with warm yellow pendant lights, brown leather Chesterfield sofa, vinyl records on wooden shelves").
+3. "cameraSettings": Starting-point camera settings tailored to this lighting:
+   - "aperture": e.g. "f/2.8"
+   - "shutterSpeed": e.g. "1/250s"
+   - "iso": e.g. "200"
+   - "whiteBalance": e.g. "5400K"
+   - "ev": e.g. "+0.3 EV"
+4. "poses": Create 4 DIVERSE, trendy poses (inspired by popular Facebook, Instagram & TikTok portrait/lifestyle photography) specifically tailored to Image 1's environment, furniture, and props (e.g. sitting on the sofa with crossed legs, leaning on a wall/table with chin on hand, standing crossed-leg beside furniture, holding a cup/prop, looking back over shoulder). ${
+    previousPoseTitles && previousPoseTitles.length > 0
+      ? `IMPORTANT: The user already saw these poses [${previousPoseTitles.join(', ')}]. Propose 4 COMPLETELY DIFFERENT, fresh pose variations!`
+      : ''
+  } For each pose provide:
+   - "poseId": closest matching id from ALLOWED POSE IDS
+   - "poseTitle": short, catchy Vietnamese pose name (2–5 words, e.g. "Ngồi sofa vắt chân", "Chống cằm tựa bàn", "Đứng bắt chéo chân")
+   - "tip": 1 short, natural Vietnamese instruction for the model.
+   - "xPercent": number 18..82 (horizontal % of Image 1 width where the center of the person should be; 0=left edge of Image 1, 100=right edge of Image 1). CRITICAL: If "tip" mentions standing next to a chair/table/railing, place "xPercent" BESIDE that object (never directly on top of the chair!), on open floor space. If sitting ON a sofa/chair, center "xPercent" directly over the seat cushion.
+   - "yPercent": number 42..75 (vertical % of Image 1 height for the center of the person; keep feet grounded naturally on the floor/ground, NOT floating above furniture!).
+   - "scale": number 0.55..1.15 (realistic human height relative to Image 1 height)
+   - "flipHorizontal": boolean. Follow the photography Lead Room rule: if the person stands on the left side (xPercent < 50), orient them facing/leaning toward the center-right background; if on the right side (xPercent > 50), orient them toward center-left.
+   - "skeleton": An object of 20 anatomical body joint coordinates in Image 1 (% of Image 1 width x=0..100 and height y=0..100) so the app can draw a natural, fluid human pose outline interacting ACCURATELY with exact surfaces in Image 1:
+     * If SITTING on a sofa/chair/bench: place "lHip" & "rHip" right on top of the visible seat cushion surface, bend "lKnee" & "rKnee" forward over the seat edge, and ground "lAnkle"/"rAnkle"/"lFoot"/"rFoot" on the floor below.
+     * If LEANING on a table/railing/armrest: place the supporting "lElbow"/"rElbow" or "lHand"/"rHand" directly on that visible edge.
+     * If STANDING: keep "lFoot" & "rFoot" planted on the visible floor plane (usually y=74..90) with realistic human limb proportions.
+     Required keys: "head", "faceTarget" (gaze/chin direction point near head), "neck", "spineMid" (mid-torso waist curve point), "lShoulder", "rShoulder", "lElbow", "rElbow", "lWrist", "rWrist", "lHand" (fingertips), "rHand", "lHip", "rHip", "lKnee", "rKnee", "lAnkle", "rAnkle", "lFoot" (toes), "rFoot" — each as {"x": number, "y": number}.
+5. "suggestedCrop": Propose a cleaner framing crop box on Image 1 so the photographer can see the ideal composition (removing messy edges, zooming closer to the main background/chair/anchor, placing key elements on the rule-of-thirds):
+   - "xPercent": number 0..45 (left edge of crop box as % of Image 1 width)
+   - "yPercent": number 0..45 (top edge of crop box as % of Image 1 height)
+   - "widthPercent": number 45..100 (width of crop box as % of Image 1 width; xPercent + widthPercent <= 100)
+   - "heightPercent": number 45..100 (height of crop box as % of Image 1 height; yPercent + heightPercent <= 100)
+   - "rotateDeg": number -5..5 (small tilt correction in degrees if the horizon/verticals are slightly crooked, 0 if straight)
+
+ALLOWED POSE IDS:
+${poseCatalog}
+
+CRITICAL RULES:
+- ONLY return a single raw JSON object. No markdown, no explanations.
+`.trim();
+
+  const parts: any[] = [
+    {
+      inline_data: {
+        mime_type: thumbScene.mimeType,
+        data: thumbScene.base64Data,
+      },
+    },
+  ];
+
+  if (thumbRef) {
+    parts.push({
+      inline_data: {
+        mime_type: thumbRef.mimeType,
+        data: thumbRef.base64Data,
+      },
+    });
+  }
+
+  parts.push({ text: promptText });
+
+  const payload = {
+    contents: [{ parts }],
+    generationConfig: {
+      response_mime_type: 'application/json',
+      temperature: 0.65,
+    },
+  };
+
+  const rawText = await callGeminiFlash(payload, key);
+  const cleaned = rawText
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    throw new Error('Không đọc được kết quả phân tích góc chụp từ AI.');
+  }
+
+  const validIds = new Set(POSE_TEMPLATES.map((p) => p.id));
+  const rawPoses: any[] = Array.isArray(parsed?.poses) ? parsed.poses : [];
+
+  const parseSkeleton = (raw: any): DynamicSkeleton | undefined => {
+    if (!raw || typeof raw !== 'object') return undefined;
+    const requiredKeys: (keyof DynamicSkeleton)[] = [
+      'head', 'neck', 'lShoulder', 'rShoulder', 'lElbow', 'rElbow',
+      'lWrist', 'rWrist', 'lHip', 'rHip', 'lKnee', 'rKnee', 'lAnkle', 'rAnkle',
+    ];
+    const optionalKeys: (keyof DynamicSkeleton)[] = [
+      'faceTarget', 'spineMid', 'lHand', 'rHand', 'lFoot', 'rFoot',
+    ];
+    const out: any = {};
+    for (const k of requiredKeys) {
+      const pt = raw[k];
+      if (!pt || typeof pt.x !== 'number' || typeof pt.y !== 'number') return undefined;
+      out[k] = {
+        x: Math.min(96, Math.max(4, pt.x)),
+        y: Math.min(96, Math.max(4, pt.y)),
+      };
+    }
+    for (const k of optionalKeys) {
+      const pt = raw[k];
+      if (pt && typeof pt.x === 'number' && typeof pt.y === 'number') {
+        out[k] = {
+          x: Math.min(98, Math.max(2, pt.x)),
+          y: Math.min(98, Math.max(2, pt.y)),
+        };
+      }
+    }
+    return out as DynamicSkeleton;
+  };
+
+  const poses: PoseSuggestion[] = rawPoses
+    .filter((item) => item && typeof item === 'object')
+    .slice(0, 4)
+    .map((item) => {
+      const safeId = validIds.has(String(item.poseId)) ? String(item.poseId) : POSE_TEMPLATES[0].id;
+      return {
+        poseId: safeId,
+        poseTitle:
+          typeof item.poseTitle === 'string' && item.poseTitle.trim()
+            ? item.poseTitle.trim().slice(0, 36)
+            : undefined,
+        tip:
+          typeof item.tip === 'string' && item.tip.trim()
+            ? item.tip.trim()
+            : POSE_TEMPLATES.find((p) => p.id === safeId)?.defaultTip || '',
+        xPercent: Math.min(82, Math.max(18, Number(item.xPercent) || 50)),
+        yPercent: Math.min(78, Math.max(25, Number(item.yPercent) || 54)),
+        scale: Math.min(1.3, Math.max(0.55, Number(item.scale) || 0.9)),
+        flipHorizontal: Boolean(item.flipHorizontal),
+        skeleton: parseSkeleton(item.skeleton),
+      };
+    });
+
+  if (poses.length === 0) {
+    poses.push({
+      poseId: POSE_TEMPLATES[0].id,
+      tip: POSE_TEMPLATES[0].defaultTip,
+      xPercent: 50,
+      yPercent: 55,
+      scale: 0.9,
+    });
+  }
+
+  let suggestedCrop: SuggestedCrop | undefined;
+  const sc = parsed?.suggestedCrop;
+  if (sc && typeof sc === 'object') {
+    const xP = Math.min(45, Math.max(0, Number(sc.xPercent) || 0));
+    const yP = Math.min(45, Math.max(0, Number(sc.yPercent) || 0));
+    const wP = Math.min(100 - xP, Math.max(45, Number(sc.widthPercent) || 100 - xP));
+    const hP = Math.min(100 - yP, Math.max(45, Number(sc.heightPercent) || 100 - yP));
+    const rot = Math.min(6, Math.max(-6, Number(sc.rotateDeg) || 0));
+    if (wP < 98 || hP < 98 || Math.abs(rot) >= 0.5) {
+      suggestedCrop = {
+        xPercent: xP,
+        yPercent: yP,
+        widthPercent: wP,
+        heightPercent: hP,
+        rotateDeg: rot,
+      };
+    }
+  }
+
+  const cs = parsed?.cameraSettings || {};
+  return {
+    lightingSummary:
+      typeof parsed?.lightingSummary === 'string'
+        ? parsed.lightingSummary
+        : 'Ánh sáng tự nhiên cân đối.',
+    angleAdvice:
+      typeof parsed?.angleAdvice === 'string'
+        ? parsed.angleAdvice
+        : 'Giữ đường chân trời thẳng và đặt chủ thể theo tỷ lệ 1/3.',
+    sceneVisualPrompt:
+      typeof parsed?.sceneVisualPrompt === 'string' && parsed.sceneVisualPrompt.trim()
+        ? parsed.sceneVisualPrompt.trim()
+        : undefined,
+    cameraSettings: {
+      aperture: String(cs.aperture || 'f/2.8'),
+      shutterSpeed: String(cs.shutterSpeed || '1/250s'),
+      iso: String(cs.iso || '200'),
+      whiteBalance: String(cs.whiteBalance || '5500K'),
+      ev: String(cs.ev || '0 EV'),
+    },
+    poses,
+    suggestedCrop,
+  };
+}
+
+export interface GeneratePoseImageOptions {
+  sceneImage: HTMLImageElement | HTMLCanvasElement;
+  sceneVisualPrompt?: string;
+  tip: string;
+  modelGender: ModelGender;
+  apiKey?: string;
+}
+
+const IMAGE_GEN_MODELS = [
+  'gemini-2.5-flash-image',
+  'gemini-3.1-flash-image',
+  'gemini-3.1-flash-lite-image',
+];
+
+/**
+ * Tạo ảnh người mẫu thật minh họa tư thế & bối cảnh tương tự qua Proxy (gpt-image-1.5)
+ * hoặc fallback sang Gemini Image nếu chạy với Key trả phí.
+ */
+export async function generatePosePreviewImage({
+  sceneImage,
+  sceneVisualPrompt,
+  tip,
+  modelGender,
+  apiKey,
+}: GeneratePoseImageOptions): Promise<string> {
+  const subjectDesc =
+    modelGender === 'male'
+      ? 'a stylish young Vietnamese man in casual modern outfit'
+      : modelGender === 'couple'
+      ? 'a stylish young Vietnamese couple in matching casual outfits'
+      : 'a stylish young Vietnamese woman in casual modern outfit';
+
+  // Ưu tiên gọi qua Cloudflare Worker Proxy (/image-gen -> gpt-image-1.5)
+  if (DEMO_PROXY_URL) {
+    const w = 'naturalWidth' in sceneImage ? sceneImage.naturalWidth : sceneImage.width;
+    const h = 'naturalHeight' in sceneImage ? sceneImage.naturalHeight : sceneImage.height;
+    const size = h > w * 1.15 ? '1024x1536' : w > h * 1.15 ? '1536x1024' : '1024x1024';
+
+    const envPart = sceneVisualPrompt
+      ? `Setting: ${sceneVisualPrompt}. `
+      : '';
+    const genPrompt = `Photorealistic candid portrait photograph. ${envPart}Subject: ${subjectDesc}. Pose & framing: ${tip}. Natural realistic lighting, 35mm camera look, flattering photography composition.`;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 35000);
+    try {
+      const res = await fetch(`${DEMO_PROXY_URL}/image-gen`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: genPrompt, size }),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+
+      const limitHeader = Number(res.headers.get('X-RateLimit-Limit'));
+      const remHeader = Number(res.headers.get('X-RateLimit-Remaining'));
+      if (Number.isFinite(limitHeader) && Number.isFinite(remHeader) && limitHeader > 0) {
+        cachedDemoQuota = { limit: limitHeader, remaining: remHeader };
+      }
+
+      if (res.status === 429) {
+        const errJson = await res.json().catch(() => ({}));
+        if (errJson?.code === 'DAILY_LIMIT_REACHED') {
+          cachedDemoQuota = { limit: cachedDemoQuota?.limit || 5, remaining: 0 };
+          throw new DemoLimitReachedError(
+            errJson.error ||
+              'Bạn đã dùng hết lượt AI miễn phí hôm nay. Hãy nhập API Key cá nhân hoặc quay lại vào ngày mai.',
+          );
+        }
+      }
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson?.error?.message || errJson?.error || `Lỗi tạo ảnh (HTTP ${res.status})`);
+      }
+
+      const data = await res.json();
+      const b64 = data?.data?.[0]?.b64_json;
+      const url = data?.data?.[0]?.url;
+      if (b64) return `data:image/png;base64,${b64}`;
+      if (url) return url;
+      throw new Error('Không nhận được dữ liệu ảnh từ máy chủ tạo ảnh.');
+    } catch (e: any) {
+      clearTimeout(timer);
+      if (e instanceof DemoLimitReachedError) throw e;
+      if (e?.name === 'AbortError') {
+        throw new Error('Quá thời gian tạo ảnh mẫu (35s). Vui lòng thử lại.');
+      }
+      throw e instanceof Error ? e : new Error('Lỗi khi tạo ảnh người mẫu thật.');
+    }
+  }
+
+  const key = (apiKey || getStoredApiKey()).trim();
+  if (!key) {
+    throw new Error(
+      'Tính năng tạo ảnh người mẫu thật yêu cầu kết nối Proxy hoặc Gemini API Key có bật Billing.',
+    );
+  }
+
+  const { base64Data, mimeType } = await createGeminiThumbnail(sceneImage, 768);
+
+  const promptText = `Keep this exact background, furniture, perspective, and lighting completely unchanged. Naturally place ${subjectDesc} into this scene following this exact pose instruction: "${tip}". Make lighting, shadows on the floor/furniture, and proportions photorealistic so the photographer and model can use it as a pose reference.`;
+
+  const payload = {
+    contents: [
+      {
+        parts: [
+          {
+            inline_data: {
+              mime_type: mimeType,
+              data: base64Data,
+            },
+          },
+          { text: promptText },
+        ],
+      },
+    ],
+    generationConfig: {
+      responseModalities: ['IMAGE'],
+    },
+  };
+
+  let lastStatus = 0;
+  let lastErr = '';
+
+  for (const model of IMAGE_GEN_MODELS) {
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(
+      key,
+    )}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30000);
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+
+      if (res.ok) {
+        const data = await res.json();
+        const parts: any[] = data?.candidates?.[0]?.content?.parts || [];
+        for (const part of parts) {
+          const inline = part?.inlineData || part?.inline_data;
+          if (inline?.data) {
+            const outMime = inline.mimeType || inline.mime_type || 'image/png';
+            return `data:${outMime};base64,${inline.data}`;
+          }
+        }
+        lastErr = 'Model không trả về dữ liệu ảnh.';
+        continue;
+      }
+
+      lastStatus = res.status;
+      try {
+        const errJson = await res.json();
+        lastErr = errJson?.error?.message || res.statusText;
+      } catch {
+        lastErr = res.statusText;
+      }
+    } catch (e: any) {
+      clearTimeout(timer);
+      lastErr = e?.name === 'AbortError' ? 'Quá thời gian tạo ảnh (30s).' : 'Lỗi kết nối mạng.';
+    }
+  }
+
+  if (lastStatus === 429) {
+    throw new Error(
+      'Model vẽ người mẫu thật của Google không hỗ trợ gói Free Tier (Quota = 0). Vui lòng bật Billing (trả phí) cho Gemini API Key trong Google AI Studio để sử dụng tính năng này.',
+    );
+  }
+  throw new Error(lastErr || 'Không thể tạo ảnh người mẫu thật.');
 }

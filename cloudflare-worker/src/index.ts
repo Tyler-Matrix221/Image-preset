@@ -1,5 +1,7 @@
 export interface Env {
   GEMINI_API_KEY: string;
+  OPENAI_API_KEY?: string;
+  XAH_API_KEY?: string;
   DAILY_LIMIT?: string;
   ALLOWED_ORIGINS?: string;
   RATE_LIMIT_KV?: KVNamespace;
@@ -78,13 +80,6 @@ export default {
       });
     }
 
-    if (!env.GEMINI_API_KEY) {
-      return new Response(
-        JSON.stringify({ error: 'Proxy chưa được cấu hình GEMINI_API_KEY.' }),
-        { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } },
-      );
-    }
-
     // Kiểm tra giới hạn lượt dùng miễn phí trong ngày
     if (currentUsed >= limit) {
       return new Response(
@@ -103,6 +98,182 @@ export default {
             'X-RateLimit-Remaining': '0',
           },
         },
+      );
+    }
+
+    // Route riêng tạo ảnh người thật minh họa tư thế qua api.xah.io (gpt-image-1.5)
+    if (url.pathname === '/image-gen') {
+      if (!env.XAH_API_KEY) {
+        return new Response(
+          JSON.stringify({ error: 'Proxy chưa được cấu hình XAH_API_KEY cho tính năng tạo ảnh mẫu.' }),
+          { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } },
+        );
+      }
+
+      let imgBody: { prompt?: string; size?: string };
+      try {
+        imgBody = await request.json();
+      } catch {
+        return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+          status: 400,
+          headers: { ...cors, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const prompt = typeof imgBody?.prompt === 'string' ? imgBody.prompt.trim().slice(0, 1200) : '';
+      if (!prompt) {
+        return new Response(JSON.stringify({ error: 'Thiếu mô tả ảnh.' }), {
+          status: 400,
+          headers: { ...cors, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const allowedSizes = new Set(['1024x1024', '1024x1536', '1536x1024']);
+      const size = imgBody.size && allowedSizes.has(imgBody.size) ? imgBody.size : '1024x1024';
+
+      const xahRes = await fetch('https://api.xah.io/v1/images/generations', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${env.XAH_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'daongocson12022004/gpt-image-1.5',
+          prompt,
+          n: 1,
+          size,
+        }),
+      });
+
+      const xahText = await xahRes.text();
+      let nextUsed = currentUsed;
+      if (xahRes.ok && env.RATE_LIMIT_KV) {
+        nextUsed = currentUsed + 1;
+        await env.RATE_LIMIT_KV.put(quotaKey, String(nextUsed), { expirationTtl: 86400 });
+      }
+
+      return new Response(xahText, {
+        status: xahRes.status,
+        headers: {
+          ...cors,
+          'Content-Type': 'application/json',
+          'X-RateLimit-Limit': String(limit),
+          'X-RateLimit-Remaining': String(Math.max(0, limit - nextUsed)),
+        },
+      });
+    }
+
+    // Route dự phòng Vision khi Google Gemini bị 503/429/quá tải hoặc chặn vùng:
+    // Ưu tiên OpenAI gpt-4o-mini (OPENAI_API_KEY), nếu chưa cấu hình/lỗi mới dùng XAH_API_KEY
+    if (url.pathname === '/vision-fallback') {
+      if (!env.OPENAI_API_KEY && !env.XAH_API_KEY) {
+        return new Response(
+          JSON.stringify({
+            error: 'Proxy chưa được cấu hình OPENAI_API_KEY hoặc XAH_API_KEY cho Vision fallback.',
+          }),
+          { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } },
+        );
+      }
+
+      let fbBody: { payload?: { contents?: Array<{ parts?: Array<any> }> } };
+      try {
+        fbBody = await request.json();
+      } catch {
+        return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+          status: 400,
+          headers: { ...cors, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const parts = fbBody?.payload?.contents?.[0]?.parts;
+      if (!Array.isArray(parts) || parts.length === 0) {
+        return new Response(JSON.stringify({ error: 'Thiếu nội dung payload.' }), {
+          status: 400,
+          headers: { ...cors, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const contentItems: any[] = [];
+      for (const p of parts) {
+        if (p?.inline_data?.data && p?.inline_data?.mime_type) {
+          contentItems.push({
+            type: 'image_url',
+            image_url: {
+              url: `data:${p.inline_data.mime_type};base64,${p.inline_data.data}`,
+            },
+          });
+        } else if (typeof p?.text === 'string' && p.text.trim()) {
+          contentItems.push({ type: 'text', text: p.text });
+        }
+      }
+
+      let fallbackRes: Response | null = null;
+      let providerUsed = 'openai';
+
+      if (env.OPENAI_API_KEY) {
+        fallbackRes = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            messages: [{ role: 'user', content: contentItems }],
+            temperature: 0.4,
+            response_format: { type: 'json_object' },
+          }),
+        });
+      }
+
+      if ((!fallbackRes || !fallbackRes.ok) && env.XAH_API_KEY) {
+        providerUsed = 'xah';
+        fallbackRes = await fetch('https://api.xah.io/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${env.XAH_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'ngphatgi/gemini-3.8-flash',
+            messages: [{ role: 'user', content: contentItems }],
+            temperature: 0.4,
+          }),
+        });
+      }
+
+      if (!fallbackRes || !fallbackRes.ok) {
+        const errText = fallbackRes ? await fallbackRes.text() : 'Vision fallback failed';
+        return new Response(errText, {
+          status: fallbackRes?.status || 502,
+          headers: { ...cors, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const fbData: any = await fallbackRes.json();
+      const outputText = fbData?.choices?.[0]?.message?.content || '';
+
+      let nextUsed = currentUsed;
+      if (outputText && env.RATE_LIMIT_KV) {
+        nextUsed = currentUsed + 1;
+        await env.RATE_LIMIT_KV.put(quotaKey, String(nextUsed), { expirationTtl: 86400 });
+      }
+
+      return new Response(JSON.stringify({ output_text: outputText, provider: providerUsed }), {
+        status: 200,
+        headers: {
+          ...cors,
+          'Content-Type': 'application/json',
+          'X-RateLimit-Limit': String(limit),
+          'X-RateLimit-Remaining': String(Math.max(0, limit - nextUsed)),
+        },
+      });
+    }
+
+    if (!env.GEMINI_API_KEY) {
+      return new Response(
+        JSON.stringify({ error: 'Proxy chưa được cấu hình GEMINI_API_KEY.' }),
+        { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } },
       );
     }
 

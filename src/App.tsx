@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Redo2, Settings, Undo2 } from 'lucide-react';
+import { Camera, Palette, Redo2, Settings, Undo2 } from 'lucide-react';
 import CanvasStage from '@/components/CanvasStage';
 import ControlsPanel from '@/components/ControlsPanel';
 import AdjustPanel from '@/components/AdjustPanel';
@@ -9,6 +9,7 @@ import SettingsModal from '@/components/SettingsModal';
 import AiSuggestionPanel from '@/components/AiSuggestionPanel';
 import ClonePresetModal from '@/components/ClonePresetModal';
 import ExportModal from '@/components/ExportModal';
+import ShootingCoachTab from '@/components/ShootingCoachTab';
 import {
   ImageEngine,
   downscaleCanvas,
@@ -51,6 +52,7 @@ export default function App() {
   const fullImageRef = useRef<HTMLImageElement | null>(null);
 
   const [ready, setReady] = useState(false);
+  const [activeMode, setActiveMode] = useState<'color' | 'shoot'>('color');
   const [previewSrc, setPreviewSrc] = useState<HTMLCanvasElement | null>(null);
   const originalPreviewUrl = useMemo(
     () => (previewSrc ? previewSrc.toDataURL('image/jpeg', 0.9) : null),
@@ -469,52 +471,101 @@ export default function App() {
 
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-zinc-100 text-zinc-900">
-      <header className="flex items-center justify-between border-b border-zinc-200/80 bg-white/80 px-4 pb-2 pt-4 backdrop-blur">
-        <div>
-          <h1 className="text-[17px] font-bold tracking-tight text-zinc-900">Studio Màu</h1>
-          <p className="text-[12px] text-zinc-500">Chỉnh màu ảnh ngay trên máy của bạn</p>
+      <header className="flex flex-col gap-2 border-b border-zinc-200/80 bg-white/85 px-4 pb-2.5 pt-3.5 backdrop-blur">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-[17px] font-bold tracking-tight text-zinc-900">Studio Màu</h1>
+            <p className="text-[11.5px] text-zinc-500">
+              {activeMode === 'color'
+                ? 'Chỉnh màu ảnh ngay trên máy của bạn'
+                : 'Canh góc, thông số & tạo dáng trước khi chụp'}
+            </p>
+          </div>
+          <div className="flex items-center gap-1.5">
+            {activeMode === 'color' && ready && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleUndo}
+                  disabled={!canUndo}
+                  className="flex h-8 w-8 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-600 shadow-2xs hover:bg-zinc-50 hover:text-zinc-900 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                  title="Hoàn tác"
+                  aria-label="Hoàn tác"
+                >
+                  <Undo2 size={15} />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRedo}
+                  disabled={!canRedo}
+                  className="flex h-8 w-8 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-600 shadow-2xs hover:bg-zinc-50 hover:text-zinc-900 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                  title="Làm lại"
+                  aria-label="Làm lại"
+                >
+                  <Redo2 size={15} />
+                </button>
+                <span className="hidden sm:inline-block rounded-full border border-zinc-200 bg-zinc-100 px-2.5 py-1 text-[11px] font-medium text-zinc-600">
+                  {fullImageRef.current?.naturalWidth}×{fullImageRef.current?.naturalHeight}
+                </span>
+              </>
+            )}
+            <button
+              type="button"
+              onClick={() => setSettingsOpen(true)}
+              className="flex h-8 w-8 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-600 shadow-2xs hover:bg-zinc-50 hover:text-zinc-900 transition-colors"
+              title="Cài đặt API Key"
+              aria-label="Cài đặt"
+            >
+              <Settings size={16} />
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-1.5">
-          {ready && (
-            <>
-              <button
-                type="button"
-                onClick={handleUndo}
-                disabled={!canUndo}
-                className="flex h-8 w-8 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-600 shadow-2xs hover:bg-zinc-50 hover:text-zinc-900 disabled:opacity-30 disabled:pointer-events-none transition-colors"
-                title="Hoàn tác"
-                aria-label="Hoàn tác"
-              >
-                <Undo2 size={15} />
-              </button>
-              <button
-                type="button"
-                onClick={handleRedo}
-                disabled={!canRedo}
-                className="flex h-8 w-8 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-600 shadow-2xs hover:bg-zinc-50 hover:text-zinc-900 disabled:opacity-30 disabled:pointer-events-none transition-colors"
-                title="Làm lại"
-                aria-label="Làm lại"
-              >
-                <Redo2 size={15} />
-              </button>
-              <span className="hidden sm:inline-block rounded-full border border-zinc-200 bg-zinc-100 px-2.5 py-1 text-[11px] font-medium text-zinc-600">
-                {fullImageRef.current?.naturalWidth}×{fullImageRef.current?.naturalHeight}
-              </span>
-            </>
-          )}
+
+        {/* Thanh chuyển nhanh giữa 2 chế độ: Canh chụp (Tiền kỳ) -> Chỉnh màu (Hậu kỳ) */}
+        <div className="flex rounded-xl bg-zinc-200/70 p-0.5 text-[12px] font-medium">
           <button
             type="button"
-            onClick={() => setSettingsOpen(true)}
-            className="flex h-8 w-8 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-600 shadow-2xs hover:bg-zinc-50 hover:text-zinc-900 transition-colors"
-            title="Cài đặt API Key"
-            aria-label="Cài đặt"
+            onClick={() => setActiveMode('shoot')}
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 transition-all ${
+              activeMode === 'shoot'
+                ? 'bg-white font-semibold text-zinc-900 shadow-2xs'
+                : 'text-zinc-600 hover:text-zinc-900'
+            }`}
           >
-            <Settings size={16} />
+            <Camera size={14} />
+            <span>Canh chụp & Tạo dáng</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveMode('color')}
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 transition-all ${
+              activeMode === 'color'
+                ? 'bg-white font-semibold text-zinc-900 shadow-2xs'
+                : 'text-zinc-600 hover:text-zinc-900'
+            }`}
+          >
+            <Palette size={14} />
+            <span>Chỉnh màu</span>
           </button>
         </div>
       </header>
 
-      {!ready ? (
+      {activeMode === 'shoot' ? (
+        <ShootingCoachTab
+          hasApiKey={hasApiKey}
+          demoQuota={demoQuota}
+          onQuotaUpdated={setDemoQuota}
+          onOpenSettings={(notice) => {
+            setLimitNotice(notice || null);
+            setSettingsOpen(true);
+          }}
+          onSendToColorTab={async (file) => {
+            await handleFile(file);
+            setActiveMode('color');
+          }}
+          onError={setError}
+        />
+      ) : !ready ? (
         <UploadZone onFile={handleFile} error={error} />
       ) : (
         <>
@@ -631,7 +682,7 @@ export default function App() {
         }}
       />
 
-      {ready && error && (
+      {(ready || activeMode === 'shoot') && error && (
         <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-full border border-red-300 bg-red-100/90 px-4 py-2 text-[13px] font-medium text-red-700 shadow-lg backdrop-blur">
           {error}
         </div>
