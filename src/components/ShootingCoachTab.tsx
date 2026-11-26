@@ -11,14 +11,13 @@ import {
   RefreshCw,
   Sparkles,
   Upload,
-  UserCheck,
   X,
+  ZoomIn,
 } from 'lucide-react';
 import { readBasicExif, type PhotoExif } from '@/lib/exifReader';
 import {
   analyzeShootingScene,
   DemoLimitReachedError,
-  generatePosePreviewImage,
   getDemoQuota,
   hasAiAccess,
   hasDemoProxy,
@@ -30,6 +29,7 @@ import {
   type SuggestedCrop,
 } from '@/lib/geminiApi';
 import { loadImage } from '@/lib/imageEngine';
+import { extractSkeletonFromImage } from '@/lib/poseDetector';
 import { POSE_TEMPLATES, getPoseById, type PoseTemplate } from '@/rules/poseTemplates';
 import { buildSoftSilhouette } from '@/rules/softPoseRenderer';
 
@@ -55,15 +55,13 @@ export default function ShootingCoachTab({
   const [sceneExif, setSceneExif] = useState<PhotoExif | null>(null);
 
   const [refUrl, setRefUrl] = useState<string | null>(null);
+  const [refSkeleton, setRefSkeleton] = useState<DynamicSkeleton | null>(null);
+  const [isDetectingRefPose, setIsDetectingRefPose] = useState(false);
+  const [zoomedRefOpen, setZoomedRefOpen] = useState(false);
   const [modelGender, setModelGender] = useState<ModelGender>('female');
   const [analyzedGender, setAnalyzedGender] = useState<ModelGender | null>(null);
   const [guide, setGuide] = useState<ShootingGuideResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-
-  // Cách 2: Ảnh AI ghép người mẫu thật vào bối cảnh
-  const [generatedPoseUrl, setGeneratedPoseUrl] = useState<string | null>(null);
-  const [showGeneratedPose, setShowGeneratedPose] = useState(false);
-  const [isGeneratingPoseImg, setIsGeneratingPoseImg] = useState(false);
 
   // Ảnh mẫu đã crop & cân thẳng theo gợi ý AI
   const [croppedUrl, setCroppedUrl] = useState<string | null>(null);
@@ -130,8 +128,6 @@ export default function ShootingCoachTab({
     setShowOverlay(false);
     setGuide(null);
     setAnalyzedGender(null);
-    setGeneratedPoseUrl(null);
-    setShowGeneratedPose(false);
     setPosePos({ x: 50, y: 54, scale: 0.9 });
     setSkeletonOffset({ dx: 0, dy: 0 });
 
@@ -139,15 +135,32 @@ export default function ShootingCoachTab({
     setSceneExif(exif);
   };
 
-  const handleSelectRef = (file: File) => {
+  const handleSelectRef = async (file: File) => {
     if (!file.type.startsWith('image/')) return;
     if (refUrl) URL.revokeObjectURL(refUrl);
-    setRefUrl(URL.createObjectURL(file));
+    const url = URL.createObjectURL(file);
+    setRefUrl(url);
+    setRefSkeleton(null);
+    setIsDetectingRefPose(true);
+    try {
+      const img = await loadImage(file);
+      const sk = await extractSkeletonFromImage(img);
+      if (sk) {
+        setRefSkeleton(sk);
+        setSkeletonOffset({ dx: 0, dy: 0 });
+        setShowOverlay(true);
+      }
+    } catch {
+      // Nếu MediaPipe chưa tải được vẫn giữ ảnh mẫu để user xem PiP & dùng cho AI
+    } finally {
+      setIsDetectingRefPose(false);
+    }
   };
 
   const handleClearRef = () => {
     if (refUrl) URL.revokeObjectURL(refUrl);
     setRefUrl(null);
+    setRefSkeleton(null);
     if (refInputRef.current) refInputRef.current.value = '';
   };
 
@@ -181,8 +194,6 @@ export default function ShootingCoachTab({
       onQuotaUpdated(getDemoQuota());
       setGuide(result);
       setAnalyzedGender(modelGender);
-      setGeneratedPoseUrl(null);
-      setShowGeneratedPose(false);
       setShowOverlay(true);
       setShowAllPoses(false);
       setCropPreviewActive(false);
@@ -271,45 +282,11 @@ export default function ShootingCoachTab({
     setPosePos((prev) => remapPoseForCrop(prev, guide.suggestedCrop!, next));
   };
 
-  const handleGenerateRealPose = async () => {
-    const targetFile = cropPreviewActive && croppedFile ? croppedFile : sceneFile;
-    if (!targetFile) return;
-    if (!hasApiKey && !hasAiAccess()) {
-      onOpenSettings();
-      return;
-    }
-
-    setIsGeneratingPoseImg(true);
-    try {
-      const img = await loadImage(targetFile);
-      const dataUrl = await generatePosePreviewImage({
-        sceneImage: img,
-        sceneVisualPrompt: guide?.sceneVisualPrompt,
-        tip: activeTipText,
-        modelGender,
-      });
-      onQuotaUpdated(getDemoQuota());
-      setGeneratedPoseUrl(dataUrl);
-      setShowGeneratedPose(true);
-    } catch (err) {
-      onQuotaUpdated(getDemoQuota());
-      if (err instanceof DemoLimitReachedError) {
-        onOpenSettings(err.message);
-        return;
-      }
-      onError(
-        err instanceof Error ? err.message : 'Không thể tạo ảnh người mẫu thật.',
-      );
-    } finally {
-      setIsGeneratingPoseImg(false);
-    }
-  };
-
   const handleSelectAiPose = (p: PoseSuggestion) => {
     setSelectedPoseId(p.poseId);
     setFlipPose(Boolean(p.flipHorizontal));
     setSkeletonOffset({ dx: 0, dy: 0 });
-    setShowGeneratedPose(false);
+    setRefSkeleton(null);
     const base = { x: p.xPercent, y: p.yPercent, scale: p.scale };
     if (cropPreviewActive && guide?.suggestedCrop) {
       setPosePos(remapPoseForCrop(base, guide.suggestedCrop, true));
@@ -322,6 +299,7 @@ export default function ShootingCoachTab({
   const handleSelectLibraryPose = (p: PoseTemplate) => {
     setSelectedPoseId(p.id);
     setSkeletonOffset({ dx: 0, dy: 0 });
+    setRefSkeleton(null);
     setShowOverlay(true);
   };
 
@@ -331,7 +309,7 @@ export default function ShootingCoachTab({
     const rect = el.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
 
-    if (activeAiPose?.skeleton && !showAllPoses && dragStartRef.current) {
+    if (activeDynamicSkeleton && dragStartRef.current) {
       const dxPct = ((clientX - dragStartRef.current.x) / rect.width) * 100;
       const dyPct = ((clientY - dragStartRef.current.y) / rect.height) * 100;
       dragStartRef.current = { x: clientX, y: clientY };
@@ -349,7 +327,15 @@ export default function ShootingCoachTab({
 
   const activeTemplate = getPoseById(selectedPoseId);
   const activeAiPose = guide?.poses.find((p) => p.poseId === selectedPoseId);
-  const activeTipText = activeAiPose?.tip || activeTemplate.defaultTip;
+  const activeDynamicSkeleton = refSkeleton || (!showAllPoses ? activeAiPose?.skeleton : undefined);
+  const activeTipText = refSkeleton
+    ? 'Khung dáng được tách tự động từ Ảnh mẫu của bạn (kéo để chỉnh vị trí).'
+    : activeAiPose?.tip || activeTemplate.defaultTip;
+  const activeRefPhotoUrl =
+    refUrl ||
+    activeTemplate.samplePhotos?.[modelGender] ||
+    activeTemplate.samplePhotos?.female ||
+    null;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -435,7 +421,7 @@ export default function ShootingCoachTab({
                 draggingPoseRef.current = true;
                 dragStartRef.current = { x: e.clientX, y: e.clientY };
                 e.currentTarget.setPointerCapture(e.pointerId);
-                if (!activeAiPose?.skeleton || showAllPoses) {
+                if (!activeDynamicSkeleton) {
                   updatePoseDrag(e.clientX, e.clientY);
                 }
               }}
@@ -457,13 +443,7 @@ export default function ShootingCoachTab({
             >
               <img
                 ref={imgRef}
-                src={
-                  showGeneratedPose && generatedPoseUrl
-                    ? generatedPoseUrl
-                    : cropPreviewActive && croppedUrl
-                    ? croppedUrl
-                    : sceneUrl
-                }
+                src={cropPreviewActive && croppedUrl ? croppedUrl : sceneUrl}
                 alt="Bối cảnh chụp"
                 draggable={false}
                 onLoad={() => {
@@ -505,10 +485,10 @@ export default function ShootingCoachTab({
                 </div>
               )}
 
-              {/* Lớp khung dáng nét trắng: ẩn khi đang xem ảnh người thật mẫu */}
-              {showOverlay && !showGeneratedPose && activeAiPose?.skeleton && !showAllPoses ? (
+              {/* Lớp khung dáng nét trắng: ưu tiên Dynamic Skeleton (MediaPipe hoặc AI) */}
+              {showOverlay && activeDynamicSkeleton ? (
                 (() => {
-                  const sk: DynamicSkeleton = activeAiPose.skeleton;
+                  const sk: DynamicSkeleton = activeDynamicSkeleton;
                   const boxW = imgBoxSize?.width || 300;
                   const boxH = imgBoxSize?.height || 400;
                   const sc = cropPreviewActive ? guide?.suggestedCrop : undefined;
@@ -577,7 +557,7 @@ export default function ShootingCoachTab({
                     </svg>
                   );
                 })()
-              ) : showOverlay && !showGeneratedPose ? (
+              ) : showOverlay ? (
                 <div
                   className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2"
                   style={{
@@ -626,23 +606,29 @@ export default function ShootingCoachTab({
               )}
             </div>
 
-            {/* Nút điều khiển nhanh góc dưới ảnh */}
+            {/* Thẻ ảnh người thật minh họa ở góc trái (PiP) — bấm để phóng to */}
+            {(showOverlay || refUrl) && activeRefPhotoUrl && (
+              <button
+                type="button"
+                onClick={() => setZoomedRefOpen(true)}
+                className="group absolute bottom-3 left-3 z-10 overflow-hidden rounded-xl border-2 border-white/85 bg-zinc-900 shadow-lg transition-transform hover:scale-105 active:scale-95"
+                title="Bấm để phóng to ảnh người thật minh họa"
+              >
+                <img
+                  src={activeRefPhotoUrl}
+                  alt="Ảnh mẫu minh họa"
+                  className="h-24 w-16 sm:h-28 sm:w-20 object-cover"
+                />
+                <span className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-0.5 bg-zinc-950/75 py-0.5 text-[9.5px] font-semibold text-white backdrop-blur-xs">
+                  <ZoomIn size={10} />
+                  <span>{refUrl ? 'Ảnh mẫu' : 'Mẫu thật'}</span>
+                </span>
+              </button>
+            )}
+
+            {/* Nút điều khiển nhanh góc dưới phải ảnh */}
             <div className="absolute bottom-3 right-3 z-10 flex flex-wrap items-center justify-end gap-1.5">
-              {generatedPoseUrl && (
-                <button
-                  type="button"
-                  onClick={() => setShowGeneratedPose((v) => !v)}
-                  className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold backdrop-blur-xs transition-colors ${
-                    showGeneratedPose
-                      ? 'border-emerald-400 bg-emerald-400 text-zinc-950'
-                      : 'border-white/20 bg-zinc-950/70 text-white hover:bg-zinc-900'
-                  }`}
-                >
-                  <UserCheck size={12} />
-                  <span>{showGeneratedPose ? 'Xem khung dáng' : 'Ảnh mẫu thật'}</span>
-                </button>
-              )}
-              {croppedUrl && !showGeneratedPose && (
+              {croppedUrl && (
                 <button
                   type="button"
                   onClick={handleToggleCropPreview}
@@ -845,25 +831,13 @@ export default function ShootingCoachTab({
               )}
             </div>
 
-            {/* Tạo ảnh người mẫu thật minh họa tư thế (luôn sẵn sàng ngay khi tải ảnh lên) */}
-            <button
-              type="button"
-              onClick={handleGenerateRealPose}
-              disabled={isGeneratingPoseImg}
-              className="flex h-9 w-full items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50/70 px-3 text-[12px] font-semibold text-rose-900 hover:bg-rose-100/70 disabled:opacity-50 transition-all"
-            >
-              {isGeneratingPoseImg ? (
-                <>
-                  <Loader2 size={14} className="animate-spin" />
-                  <span>Đang tạo ảnh người thật minh họa...</span>
-                </>
-              ) : (
-                <>
-                  <UserCheck size={14} className="text-rose-600" />
-                  <span>Tạo ảnh người thật minh họa tư thế</span>
-                </>
-              )}
-            </button>
+            {/* Trạng thái MediaPipe đang tách dáng từ Ảnh mẫu */}
+            {isDetectingRefPose && (
+              <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11.5px] font-medium text-amber-900">
+                <Loader2 size={13} className="animate-spin text-amber-600" />
+                <span>Đang tách tư thế từ Ảnh mẫu trên máy bạn...</span>
+              </div>
+            )}
 
             {/* Hiển thị EXIF hiện tại (nếu đọc được) */}
             {sceneExif && (
@@ -945,6 +919,41 @@ export default function ShootingCoachTab({
             )}
           </div>
         </>
+      )}
+
+      {/* Lightbox phóng to Ảnh người thật minh họa cho Model xem */}
+      {zoomedRefOpen && activeRefPhotoUrl && (
+        <div
+          onClick={() => setZoomedRefOpen(false)}
+          className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-zinc-950/85 p-4 backdrop-blur-xs animate-in fade-in duration-150"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative max-w-sm w-full overflow-hidden rounded-2xl border border-white/15 bg-zinc-900 shadow-2xl"
+          >
+            <button
+              type="button"
+              onClick={() => setZoomedRefOpen(false)}
+              className="absolute right-2.5 top-2.5 z-10 rounded-full bg-zinc-950/70 p-1.5 text-white hover:bg-zinc-900"
+              aria-label="Đóng"
+            >
+              <X size={18} />
+            </button>
+            <img
+              src={activeRefPhotoUrl}
+              alt="Ảnh người thật minh họa tư thế"
+              className="max-h-[65dvh] w-full object-contain bg-black"
+            />
+            <div className="p-3.5 text-center text-[13px] text-white/95">
+              <p className="font-semibold text-amber-300 mb-1">
+                {refUrl ? 'Ảnh mẫu bạn đã chọn' : `Mẫu minh họa: ${activeTemplate.name}`}
+              </p>
+              <p className="text-[12px] leading-relaxed text-zinc-300">{activeTipText}</p>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
