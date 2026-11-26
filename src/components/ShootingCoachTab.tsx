@@ -532,44 +532,53 @@ export default function ShootingCoachTab({
                   return (
                     <svg
                       viewBox={`0 0 ${boxW} ${boxH}`}
-                      className="pointer-events-none absolute inset-0 h-full w-full drop-shadow-[0_2px_6px_rgba(0,0,0,0.85)]"
+                      className="pointer-events-none absolute inset-0 h-full w-full drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]"
                       fill="none"
                     >
+                      {/* Vòng tròn nét đứt định vị đầu + mũi tên hướng nhìn */}
+                      <circle
+                        cx={sil.headCx}
+                        cy={sil.headCy}
+                        r={sil.headR}
+                        stroke="rgba(255,255,255,0.85)"
+                        strokeWidth="2"
+                        strokeDasharray="4 4"
+                      />
+                      {sil.gazeArrowPath && (
+                        <path
+                          d={sil.gazeArrowPath}
+                          stroke="rgba(253,224,71,0.95)"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      )}
+
+                      {/* Trục nghiêng thân người */}
+                      <path
+                        d={sil.torsoCurvePath}
+                        stroke="rgba(255,255,255,0.7)"
+                        strokeWidth="2"
+                        strokeDasharray="5 5"
+                        strokeLinecap="round"
+                      />
+
+                      {/* Đường nét đứt + mũi tên chỉ hướng Tay & Chân */}
                       <g
-                        stroke="rgba(255,255,255,0.95)"
-                        strokeWidth="2.4"
+                        stroke="rgba(255,255,255,0.96)"
+                        strokeWidth="2.5"
                         strokeLinecap="round"
                         strokeLinejoin="round"
                       >
-                        <ellipse
-                          cx={sil.headCx}
-                          cy={sil.headCy}
-                          rx={sil.headRx}
-                          ry={sil.headRy}
-                          transform={`rotate(${sil.headAngleDeg.toFixed(1)} ${sil.headCx.toFixed(1)} ${sil.headCy.toFixed(1)})`}
-                          fill="rgba(255,255,255,0.08)"
-                        />
-                        {sil.faceLinePath && (
-                          <path d={sil.faceLinePath} stroke="rgba(255,255,255,0.75)" strokeWidth="1.6" />
-                        )}
-                        <path d={sil.spinePath} />
-                        <path d={sil.shouldersPath} />
-                        <path d={sil.hipsPath} />
-                        <path d={sil.leftArmPath} />
-                        <path d={sil.rightArmPath} />
-                        <path d={sil.leftLegPath} />
-                        <path d={sil.rightLegPath} />
-                        {sil.keyJoints.map((dot, idx) => (
-                          <circle
-                            key={idx}
-                            cx={dot.x}
-                            cy={dot.y}
-                            r={2.5}
-                            fill="rgba(255,255,255,0.95)"
-                            stroke="rgba(0,0,0,0.35)"
-                            strokeWidth="0.8"
-                          />
-                        ))}
+                        <path d={sil.leftArmPath} strokeDasharray="6 5" />
+                        <path d={sil.rightArmPath} strokeDasharray="6 5" />
+                        <path d={sil.leftLegPath} strokeDasharray="7 5" />
+                        <path d={sil.rightLegPath} strokeDasharray="7 5" />
+
+                        {sil.leftArmArrow && <path d={sil.leftArmArrow} />}
+                        {sil.rightArmArrow && <path d={sil.rightArmArrow} />}
+                        {sil.leftLegArrow && <path d={sil.leftLegArrow} />}
+                        {sil.rightLegArrow && <path d={sil.rightLegArrow} />}
                       </g>
                     </svg>
                   );

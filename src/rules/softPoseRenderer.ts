@@ -16,10 +16,9 @@ function fmt(p: Point2D): string {
 }
 
 /**
- * Nội suy Catmull-Rom spline thành chuỗi điểm mượt (tạo >50 điểm khớp tự nhiên từ các khớp chính)
- * và xuất ra đường SVG nét đơn liên tục.
+ * Nội suy Catmull-Rom spline mượt mà cho đường nét đứt chỉ dẫn dáng.
  */
-function buildSmoothSingleLine(points: Point2D[], subdivisions = 4): string {
+function buildSmoothCurve(points: Point2D[], subdivisions = 4): string {
   if (points.length < 2) return '';
   if (points.length === 2) return `M${fmt(points[0])} L${fmt(points[1])}`;
 
@@ -34,7 +33,6 @@ function buildSmoothSingleLine(points: Point2D[], subdivisions = 4): string {
       const t = s / subdivisions;
       const t2 = t * t;
       const t3 = t2 * t;
-
       const x =
         0.5 *
         (2 * p1.x +
@@ -51,30 +49,53 @@ function buildSmoothSingleLine(points: Point2D[], subdivisions = 4): string {
     }
   }
   sampled.push(points[points.length - 1]);
-
   return sampled.map((pt, idx) => `${idx === 0 ? 'M' : 'L'}${fmt(pt)}`).join(' ');
 }
 
-export interface SingleLinePosePaths {
+/**
+ * Tạo đầu mũi tên chữ V thanh thoát tại điểm `tip` hướng theo vector `from -> tip`.
+ */
+function buildArrowHead(from: Point2D, tip: Point2D, size = 8): string {
+  const dx = tip.x - from.x;
+  const dy = tip.y - from.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 3) return '';
+  const ux = dx / len;
+  const uy = dy / len;
+  const angle = Math.PI / 5.5; // ~33 độ
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+
+  const left: Point2D = {
+    x: tip.x - size * (ux * cos - uy * sin),
+    y: tip.y - size * (ux * sin + uy * cos),
+  };
+  const right: Point2D = {
+    x: tip.x - size * (ux * cos + uy * sin),
+    y: tip.y - size * (-ux * sin + uy * cos),
+  };
+  return `M${fmt(left)} L${fmt(tip)} L${fmt(right)}`;
+}
+
+export interface GuidePosePaths {
   headCx: number;
   headCy: number;
-  headRx: number;
-  headRy: number;
-  headAngleDeg: number;
-  faceLinePath: string;
-  spinePath: string;
-  shouldersPath: string;
-  hipsPath: string;
+  headR: number;
+  gazeArrowPath: string;
+  torsoCurvePath: string;
   leftArmPath: string;
+  leftArmArrow: string;
   rightArmPath: string;
+  rightArmArrow: string;
   leftLegPath: string;
+  leftLegArrow: string;
   rightLegPath: string;
-  keyJoints: Point2D[];
+  rightLegArrow: string;
 }
 
 /**
- * Dựng khung dáng NÉT ĐƠN mượt mà từ khớp AI, tự động nội suy thành 50+ điểm khớp liên tục
- * (cột sống cong, cầu vai, hông, tay, bàn tay, chân, bàn chân và hướng mặt).
+ * Dựng bộ đường nét đứt + mũi tên chỉ hướng tối giản (kiểu Hình 2 & Hình 3),
+ * bỏ hoàn toàn hình người que để không che cảnh và dễ hình dung tức thì.
  */
 export function buildSoftSilhouette(
   pts: {
@@ -100,92 +121,74 @@ export function buildSoftSilhouette(
     rFoot?: Point2D;
   },
   _gender: ModelGender,
-): SingleLinePosePaths {
+): GuidePosePaths {
   const shoulderW = Math.max(14, dist(pts.lShoulder, pts.rShoulder));
   const midShoulder = mid(pts.lShoulder, pts.rShoulder);
   const midHip = mid(pts.lHip, pts.rHip);
   const spineMid = pts.spineMid || mid(midShoulder, midHip, 0.55);
 
-  const headRy = Math.max(9, Math.min(25, shoulderW * 0.35));
-  const headRx = headRy * 0.82;
-  const headAngleDeg =
-    (Math.atan2(pts.head.x - pts.neck.x, -(pts.head.y - pts.neck.y)) * 180) / Math.PI;
+  // Vòng tròn nét đứt mảnh đánh dấu vị trí đầu
+  const headR = Math.max(9, Math.min(24, shoulderW * 0.34));
 
-  // Đường chỉ hướng nhìn trên đầu
-  let faceLinePath = '';
+  // Mũi tên nhỏ chỉ hướng quay mặt (nếu quay nghiêng)
+  let gazeArrowPath = '';
   if (pts.faceTarget) {
     const dx = pts.faceTarget.x - pts.head.x;
     const dy = pts.faceTarget.y - pts.head.y;
-    const dLen = Math.hypot(dx, dy) || 1;
-    const gazeX = Math.max(-headRx * 0.45, Math.min(headRx * 0.45, (dx / dLen) * headRx * 0.42));
-    const gazeY = Math.max(-headRy * 0.25, Math.min(headRy * 0.25, (dy / dLen) * headRy * 0.2));
-    const browY = pts.head.y - headRy * 0.14 + gazeY * 0.5;
-    const chinY = pts.head.y + headRy * 0.56 + gazeY * 0.5;
-    faceLinePath = `M${(pts.head.x + gazeX * 0.7).toFixed(1)},${browY.toFixed(1)} Q${(pts.head.x + gazeX * 1.15).toFixed(1)},${(pts.head.y + headRy * 0.2).toFixed(1)} ${(pts.head.x + gazeX * 0.6).toFixed(1)},${chinY.toFixed(1)}`;
+    const dLen = Math.hypot(dx, dy);
+    if (dLen > 3) {
+      const startPt: Point2D = {
+        x: pts.head.x + (dx / dLen) * (headR * 0.4),
+        y: pts.head.y + (dy / dLen) * (headR * 0.4),
+      };
+      const endPt: Point2D = {
+        x: pts.head.x + (dx / dLen) * (headR * 1.45),
+        y: pts.head.y + (dy / dLen) * (headR * 1.45),
+      };
+      gazeArrowPath = `M${fmt(startPt)} L${fmt(endPt)} ${buildArrowHead(startPt, endPt, 6)}`;
+    }
   }
 
-  // Đường nét đơn cột sống cong mượt từ cổ -> ngực -> eo -> xương chậu
-  const chestPt = mid(pts.neck, spineMid, 0.48);
-  const spinePath = buildSmoothSingleLine([pts.neck, chestPt, spineMid, midHip], 4);
+  // Đường cong trục thân / độ nghiêng người
+  const torsoCurvePath = buildSmoothCurve([pts.neck, spineMid, midHip], 4);
 
-  // Cầu vai & xương chậu cong nhẹ tự nhiên
-  const shouldersPath = buildSmoothSingleLine([pts.lShoulder, pts.neck, pts.rShoulder], 4);
-  const hipsPath = buildSmoothSingleLine([pts.lHip, midHip, pts.rHip], 4);
-
-  // Tay & Chân nét đơn nội suy 4 đoạn/khúc (>50 điểm tổng thể)
+  // Tay: nét đứt cong theo khuỷu tay + đầu mũi tên tại bàn tay/cổ tay
   const buildArm = (sh: Point2D, el: Point2D, wr: Point2D, hand?: Point2D) => {
-    const arr = [sh, mid(sh, el), el, mid(el, wr), wr];
-    if (hand && dist(wr, hand) > 1.5) arr.push(hand);
-    return buildSmoothSingleLine(arr, 3);
+    const endPt = hand && dist(wr, hand) > 1.5 ? hand : wr;
+    const prevPt = hand && dist(wr, hand) > 1.5 ? wr : el;
+    const curve = buildSmoothCurve([sh, mid(sh, el), el, mid(el, wr), endPt], 3);
+    const arrow = buildArrowHead(prevPt, endPt, 7.5);
+    return { curve, arrow };
   };
 
+  // Chân: nét đứt cong theo đầu gối + đầu mũi tên tại bàn chân/cổ chân
   const buildLeg = (hip: Point2D, kn: Point2D, an: Point2D, foot?: Point2D) => {
-    const arr = [hip, mid(hip, kn), kn, mid(kn, an), an];
-    if (foot && dist(an, foot) > 1.5) arr.push(foot);
-    return buildSmoothSingleLine(arr, 3);
+    const endPt = foot && dist(an, foot) > 1.5 ? foot : an;
+    const prevPt = foot && dist(an, foot) > 1.5 ? an : kn;
+    const curve = buildSmoothCurve([hip, mid(hip, kn), kn, mid(kn, an), endPt], 3);
+    const arrow = buildArrowHead(prevPt, endPt, 8);
+    return { curve, arrow };
   };
 
-  const leftArmPath = buildArm(pts.lShoulder, pts.lElbow, pts.lWrist, pts.lHand);
-  const rightArmPath = buildArm(pts.rShoulder, pts.rElbow, pts.rWrist, pts.rHand);
-  const leftLegPath = buildLeg(pts.lHip, pts.lKnee, pts.lAnkle, pts.lFoot);
-  const rightLegPath = buildLeg(pts.rHip, pts.rKnee, pts.rAnkle, pts.rFoot);
-
-  const keyJoints: Point2D[] = [
-    pts.neck,
-    spineMid,
-    pts.lShoulder,
-    pts.rShoulder,
-    pts.lElbow,
-    pts.rElbow,
-    pts.lWrist,
-    pts.rWrist,
-    pts.lHip,
-    pts.rHip,
-    pts.lKnee,
-    pts.rKnee,
-    pts.lAnkle,
-    pts.rAnkle,
-  ];
-  if (pts.lHand) keyJoints.push(pts.lHand);
-  if (pts.rHand) keyJoints.push(pts.rHand);
-  if (pts.lFoot) keyJoints.push(pts.lFoot);
-  if (pts.rFoot) keyJoints.push(pts.rFoot);
+  const lArm = buildArm(pts.lShoulder, pts.lElbow, pts.lWrist, pts.lHand);
+  const rArm = buildArm(pts.rShoulder, pts.rElbow, pts.rWrist, pts.rHand);
+  const lLeg = buildLeg(pts.lHip, pts.lKnee, pts.lAnkle, pts.lFoot);
+  const rLeg = buildLeg(pts.rHip, pts.rKnee, pts.rAnkle, pts.rFoot);
 
   return {
     headCx: pts.head.x,
     headCy: pts.head.y,
-    headRx,
-    headRy,
-    headAngleDeg,
-    faceLinePath,
-    spinePath,
-    shouldersPath,
-    hipsPath,
-    leftArmPath,
-    rightArmPath,
-    leftLegPath,
-    rightLegPath,
-    keyJoints,
+    headR,
+    gazeArrowPath,
+    torsoCurvePath,
+    leftArmPath: lArm.curve,
+    leftArmArrow: lArm.arrow,
+    rightArmPath: rArm.curve,
+    rightArmArrow: rArm.arrow,
+    leftLegPath: lLeg.curve,
+    leftLegArrow: lLeg.arrow,
+    rightLegPath: rLeg.curve,
+    rightLegArrow: rLeg.arrow,
   };
 }
 
