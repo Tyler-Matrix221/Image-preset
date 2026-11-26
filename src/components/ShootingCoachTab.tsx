@@ -331,11 +331,7 @@ export default function ShootingCoachTab({
   const activeTipText = refSkeleton
     ? 'Khung dáng được tách tự động từ Ảnh mẫu của bạn (kéo để chỉnh vị trí).'
     : activeAiPose?.tip || activeTemplate.defaultTip;
-  const activeRefPhotoUrl =
-    refUrl ||
-    activeTemplate.samplePhotos?.[modelGender] ||
-    activeTemplate.samplePhotos?.female ||
-    null;
+  const activeRefPhotoUrl = refUrl || null;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -510,19 +506,25 @@ export default function ShootingCoachTab({
 
                   const mapped = {
                     head: mapPt(sk.head),
+                    faceTarget: sk.faceTarget ? mapPt(sk.faceTarget) : undefined,
                     neck: mapPt(sk.neck),
+                    spineMid: sk.spineMid ? mapPt(sk.spineMid) : undefined,
                     lShoulder: mapPt(sk.lShoulder),
                     rShoulder: mapPt(sk.rShoulder),
                     lElbow: mapPt(sk.lElbow),
                     rElbow: mapPt(sk.rElbow),
                     lWrist: mapPt(sk.lWrist),
                     rWrist: mapPt(sk.rWrist),
+                    lHand: sk.lHand ? mapPt(sk.lHand) : undefined,
+                    rHand: sk.rHand ? mapPt(sk.rHand) : undefined,
                     lHip: mapPt(sk.lHip),
                     rHip: mapPt(sk.rHip),
                     lKnee: mapPt(sk.lKnee),
                     rKnee: mapPt(sk.rKnee),
                     lAnkle: mapPt(sk.lAnkle),
                     rAnkle: mapPt(sk.rAnkle),
+                    lFoot: sk.lFoot ? mapPt(sk.lFoot) : undefined,
+                    rFoot: sk.rFoot ? mapPt(sk.rFoot) : undefined,
                   };
 
                   const sil = buildSoftSilhouette(mapped, modelGender);
@@ -535,7 +537,7 @@ export default function ShootingCoachTab({
                     >
                       <g
                         stroke="rgba(255,255,255,0.92)"
-                        strokeWidth="2.1"
+                        strokeWidth="2"
                         strokeLinecap="round"
                         strokeLinejoin="round"
                       >
@@ -547,12 +549,25 @@ export default function ShootingCoachTab({
                           transform={`rotate(${sil.headAngleDeg.toFixed(1)} ${sil.headCx.toFixed(1)} ${sil.headCy.toFixed(1)})`}
                           fill="rgba(255,255,255,0.10)"
                         />
+                        {sil.faceLinePath && (
+                          <path d={sil.faceLinePath} stroke="rgba(255,255,255,0.7)" strokeWidth="1.5" />
+                        )}
                         <path d={sil.neckPath} />
                         <path d={sil.leftLegPath} fill="rgba(255,255,255,0.10)" />
                         <path d={sil.rightLegPath} fill="rgba(255,255,255,0.10)" />
                         <path d={sil.torsoPath} fill="rgba(255,255,255,0.12)" />
                         <path d={sil.leftArmPath} fill="rgba(255,255,255,0.10)" />
                         <path d={sil.rightArmPath} fill="rgba(255,255,255,0.10)" />
+                        {sil.jointDots.map((dot, idx) => (
+                          <circle
+                            key={idx}
+                            cx={dot.x}
+                            cy={dot.y}
+                            r={2}
+                            fill="rgba(255,255,255,0.85)"
+                            stroke="none"
+                          />
+                        ))}
                       </g>
                     </svg>
                   );

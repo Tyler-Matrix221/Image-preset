@@ -715,19 +715,25 @@ export interface Point2D {
 
 export interface DynamicSkeleton {
   head: Point2D;
+  faceTarget?: Point2D;
   neck: Point2D;
+  spineMid?: Point2D;
   lShoulder: Point2D;
   rShoulder: Point2D;
   lElbow: Point2D;
   rElbow: Point2D;
   lWrist: Point2D;
   rWrist: Point2D;
+  lHand?: Point2D;
+  rHand?: Point2D;
   lHip: Point2D;
   rHip: Point2D;
   lKnee: Point2D;
   rKnee: Point2D;
   lAnkle: Point2D;
   rAnkle: Point2D;
+  lFoot?: Point2D;
+  rFoot?: Point2D;
 }
 
 export interface PoseSuggestion {
@@ -833,9 +839,9 @@ Analyze Image 1 carefully and return practical, easy-to-follow guidance in VIETN
    - "yPercent": number 42..75 (vertical % of Image 1 height for the center of the person; keep feet grounded naturally on the floor/ground, NOT floating above furniture!).
    - "scale": number 0.55..1.15 (realistic human height relative to Image 1 height)
    - "flipHorizontal": boolean. Follow the photography Lead Room rule: if the person stands on the left side (xPercent < 50), orient them facing/leaning toward the center-right background; if on the right side (xPercent > 50), orient them toward center-left.
-   - "skeleton": An object of 14 anatomical body joint coordinates in Image 1 (% of Image 1 width x=0..100 and height y=0..100) so the app can draw a custom flexible pose outline directly interacting with furniture/ground in Image 1 (e.g. sitting ON a chair, resting a hand ON a railing/armrest, standing BESIDE a chair with feet on the floor). Keys required:
-     "head", "neck", "lShoulder", "rShoulder", "lElbow", "rElbow", "lWrist", "rWrist", "lHip", "rHip", "lKnee", "rKnee", "lAnkle", "rAnkle", each as {"x": number, "y": number}.
-     Make sure proportions are realistic human anatomy and match your "tip" text!
+   - "skeleton": An object of 20 anatomical body joint coordinates in Image 1 (% of Image 1 width x=0..100 and height y=0..100) so the app can draw a natural, fluid human pose outline interacting with furniture/ground in Image 1 (e.g. sitting ON a sofa, resting a hand ON a thigh/armrest, standing BESIDE a chair).
+     Required keys: "head", "faceTarget" (gaze/chin direction point near head), "neck", "spineMid" (mid-torso waist curve point), "lShoulder", "rShoulder", "lElbow", "rElbow", "lWrist", "rWrist", "lHand" (fingertips), "rHand", "lHip", "rHip", "lKnee", "rKnee", "lAnkle", "rAnkle", "lFoot" (toes), "rFoot" — each as {"x": number, "y": number}.
+     Make sure proportions, curved spine, hand placement, and feet are realistic human anatomy matching your "tip"!
 5. "suggestedCrop": Propose a cleaner framing crop box on Image 1 so the photographer can see the ideal composition (removing messy edges, zooming closer to the main background/chair/anchor, placing key elements on the rule-of-thirds):
    - "xPercent": number 0..45 (left edge of crop box as % of Image 1 width)
    - "yPercent": number 0..45 (top edge of crop box as % of Image 1 height)
@@ -897,18 +903,30 @@ CRITICAL RULES:
 
   const parseSkeleton = (raw: any): DynamicSkeleton | undefined => {
     if (!raw || typeof raw !== 'object') return undefined;
-    const keys: (keyof DynamicSkeleton)[] = [
+    const requiredKeys: (keyof DynamicSkeleton)[] = [
       'head', 'neck', 'lShoulder', 'rShoulder', 'lElbow', 'rElbow',
       'lWrist', 'rWrist', 'lHip', 'rHip', 'lKnee', 'rKnee', 'lAnkle', 'rAnkle',
     ];
+    const optionalKeys: (keyof DynamicSkeleton)[] = [
+      'faceTarget', 'spineMid', 'lHand', 'rHand', 'lFoot', 'rFoot',
+    ];
     const out: any = {};
-    for (const k of keys) {
+    for (const k of requiredKeys) {
       const pt = raw[k];
       if (!pt || typeof pt.x !== 'number' || typeof pt.y !== 'number') return undefined;
       out[k] = {
         x: Math.min(96, Math.max(4, pt.x)),
         y: Math.min(96, Math.max(4, pt.y)),
       };
+    }
+    for (const k of optionalKeys) {
+      const pt = raw[k];
+      if (pt && typeof pt.x === 'number' && typeof pt.y === 'number') {
+        out[k] = {
+          x: Math.min(98, Math.max(2, pt.x)),
+          y: Math.min(98, Math.max(2, pt.y)),
+        };
+      }
     }
     return out as DynamicSkeleton;
   };
