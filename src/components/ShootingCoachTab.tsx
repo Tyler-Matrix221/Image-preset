@@ -536,8 +536,8 @@ export default function ShootingCoachTab({
                       fill="none"
                     >
                       <g
-                        stroke="rgba(255,255,255,0.92)"
-                        strokeWidth="2"
+                        stroke="rgba(255,255,255,0.95)"
+                        strokeWidth="2.4"
                         strokeLinecap="round"
                         strokeLinejoin="round"
                       >
@@ -547,25 +547,27 @@ export default function ShootingCoachTab({
                           rx={sil.headRx}
                           ry={sil.headRy}
                           transform={`rotate(${sil.headAngleDeg.toFixed(1)} ${sil.headCx.toFixed(1)} ${sil.headCy.toFixed(1)})`}
-                          fill="rgba(255,255,255,0.10)"
+                          fill="rgba(255,255,255,0.08)"
                         />
                         {sil.faceLinePath && (
-                          <path d={sil.faceLinePath} stroke="rgba(255,255,255,0.7)" strokeWidth="1.5" />
+                          <path d={sil.faceLinePath} stroke="rgba(255,255,255,0.75)" strokeWidth="1.6" />
                         )}
-                        <path d={sil.neckPath} />
-                        <path d={sil.leftLegPath} fill="rgba(255,255,255,0.10)" />
-                        <path d={sil.rightLegPath} fill="rgba(255,255,255,0.10)" />
-                        <path d={sil.torsoPath} fill="rgba(255,255,255,0.12)" />
-                        <path d={sil.leftArmPath} fill="rgba(255,255,255,0.10)" />
-                        <path d={sil.rightArmPath} fill="rgba(255,255,255,0.10)" />
-                        {sil.jointDots.map((dot, idx) => (
+                        <path d={sil.spinePath} />
+                        <path d={sil.shouldersPath} />
+                        <path d={sil.hipsPath} />
+                        <path d={sil.leftArmPath} />
+                        <path d={sil.rightArmPath} />
+                        <path d={sil.leftLegPath} />
+                        <path d={sil.rightLegPath} />
+                        {sil.keyJoints.map((dot, idx) => (
                           <circle
                             key={idx}
                             cx={dot.x}
                             cy={dot.y}
-                            r={2}
-                            fill="rgba(255,255,255,0.85)"
-                            stroke="none"
+                            r={2.5}
+                            fill="rgba(255,255,255,0.95)"
+                            stroke="rgba(0,0,0,0.35)"
+                            strokeWidth="0.8"
                           />
                         ))}
                       </g>
