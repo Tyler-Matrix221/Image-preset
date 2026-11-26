@@ -186,9 +186,9 @@ function extractOutputText(result: any): string | null {
 
 // Danh sách các model Flash tối ưu được kiểm chứng phản hồi siêu nhanh (< 2 giây) trên Google Gemini:
 const CANDIDATE_MODELS = [
-  'gemini-2.5-flash',
   'gemini-3.5-flash-lite',
   'gemini-3.5-flash',
+  'gemini-2.5-flash',
   'gemini-3.8-flash',
 ];
 
