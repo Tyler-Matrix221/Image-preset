@@ -738,6 +738,7 @@ export interface DynamicSkeleton {
 
 export interface PoseSuggestion {
   poseId: string;
+  poseTitle?: string;
   tip: string;
   xPercent: number;
   yPercent: number;
@@ -776,6 +777,7 @@ export interface AnalyzeSceneOptions {
   referenceImage?: HTMLImageElement | HTMLCanvasElement | null;
   exif?: PhotoExif | null;
   modelGender?: ModelGender;
+  previousPoseTitles?: string[];
   apiKey?: string;
 }
 
@@ -790,6 +792,7 @@ export async function analyzeShootingScene({
   referenceImage,
   exif,
   modelGender = 'female',
+  previousPoseTitles,
   apiKey,
 }: AnalyzeSceneOptions): Promise<ShootingGuideResult> {
   const key = (apiKey || getStoredApiKey()).trim();
@@ -832,9 +835,14 @@ Analyze Image 1 carefully and return practical, easy-to-follow guidance in VIETN
    - "iso": e.g. "200"
    - "whiteBalance": e.g. "5400K"
    - "ev": e.g. "+0.3 EV"
-4. "poses": Pick 3 to 4 best poses from the ALLOWED POSE IDS below for this scene. For each pose provide:
-   - "poseId": exact id from the list
-   - "tip": 1 short, natural Vietnamese instruction for the model. CRITICAL RULE FOR "tip": Your "tip" MUST accurately match the EXACT body/hand/leg posture of the chosen "poseId" description below! Do NOT invent hand, prop, sitting, or leg actions that contradict that pose's drawing.
+4. "poses": Create 4 DIVERSE, creative poses specifically tailored to Image 1's environment and props (e.g. sitting on the sofa/chair, leaning on a wall/table, standing beside furniture, holding a cup/prop, looking back). ${
+    previousPoseTitles && previousPoseTitles.length > 0
+      ? `IMPORTANT: The user already saw these poses [${previousPoseTitles.join(', ')}]. Propose 4 COMPLETELY DIFFERENT, fresh pose variations!`
+      : ''
+  } For each pose provide:
+   - "poseId": closest fallback id from ALLOWED POSE IDS
+   - "poseTitle": short, catchy Vietnamese pose name (2–5 words, e.g. "Ngồi vắt chân trên sofa", "Tựa vai cạnh tủ đĩa", "Chống cằm nhìn nghiêng")
+   - "tip": 1 short, natural Vietnamese instruction for the model.
    - "xPercent": number 18..82 (horizontal % of Image 1 width where the center of the person should stand; 0=left edge of Image 1, 100=right edge of Image 1). CRITICAL: If "tip" mentions standing next to a chair/table/railing, place "xPercent" BESIDE that object (never directly on top of the chair!), on open floor space.
    - "yPercent": number 42..75 (vertical % of Image 1 height for the center of the person; keep feet grounded naturally on the floor/ground, NOT floating above furniture!).
    - "scale": number 0.55..1.15 (realistic human height relative to Image 1 height)
@@ -880,7 +888,7 @@ CRITICAL RULES:
     contents: [{ parts }],
     generationConfig: {
       response_mime_type: 'application/json',
-      temperature: 0.3,
+      temperature: 0.65,
     },
   };
 
@@ -932,20 +940,27 @@ CRITICAL RULES:
   };
 
   const poses: PoseSuggestion[] = rawPoses
-    .filter((item) => item && validIds.has(String(item.poseId)))
+    .filter((item) => item && typeof item === 'object')
     .slice(0, 4)
-    .map((item) => ({
-      poseId: String(item.poseId),
-      tip:
-        typeof item.tip === 'string' && item.tip.trim()
-          ? item.tip.trim()
-          : POSE_TEMPLATES.find((p) => p.id === item.poseId)?.defaultTip || '',
-      xPercent: Math.min(82, Math.max(18, Number(item.xPercent) || 50)),
-      yPercent: Math.min(78, Math.max(25, Number(item.yPercent) || 54)),
-      scale: Math.min(1.3, Math.max(0.55, Number(item.scale) || 0.9)),
-      flipHorizontal: Boolean(item.flipHorizontal),
-      skeleton: parseSkeleton(item.skeleton),
-    }));
+    .map((item) => {
+      const safeId = validIds.has(String(item.poseId)) ? String(item.poseId) : POSE_TEMPLATES[0].id;
+      return {
+        poseId: safeId,
+        poseTitle:
+          typeof item.poseTitle === 'string' && item.poseTitle.trim()
+            ? item.poseTitle.trim().slice(0, 36)
+            : undefined,
+        tip:
+          typeof item.tip === 'string' && item.tip.trim()
+            ? item.tip.trim()
+            : POSE_TEMPLATES.find((p) => p.id === safeId)?.defaultTip || '',
+        xPercent: Math.min(82, Math.max(18, Number(item.xPercent) || 50)),
+        yPercent: Math.min(78, Math.max(25, Number(item.yPercent) || 54)),
+        scale: Math.min(1.3, Math.max(0.55, Number(item.scale) || 0.9)),
+        flipHorizontal: Boolean(item.flipHorizontal),
+        skeleton: parseSkeleton(item.skeleton),
+      };
+    });
 
   if (poses.length === 0) {
     poses.push({

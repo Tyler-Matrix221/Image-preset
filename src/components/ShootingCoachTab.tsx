@@ -70,6 +70,7 @@ export default function ShootingCoachTab({
 
   // Khung dáng đang chọn & vị trí kéo thả trên ảnh (mặc định ẩn khi mới tải ảnh)
   const [selectedPoseId, setSelectedPoseId] = useState<string>(POSE_TEMPLATES[0].id);
+  const [selectedAiPoseIndex, setSelectedAiPoseIndex] = useState<number>(0);
   const [posePos, setPosePos] = useState({ x: 50, y: 54, scale: 0.9 });
   const [skeletonOffset, setSkeletonOffset] = useState({ dx: 0, dy: 0 });
   const [flipPose, setFlipPose] = useState(false);
@@ -184,11 +185,16 @@ export default function ShootingCoachTab({
         });
       }
 
+      const previousPoseTitles = guide?.poses
+        ?.map((p) => p.poseTitle || getPoseById(p.poseId).name)
+        .filter(Boolean);
+
       const result = await analyzeShootingScene({
         sceneImage: sceneImg,
         referenceImage: refImg,
         exif: sceneExif,
         modelGender,
+        previousPoseTitles,
       });
 
       onQuotaUpdated(getDemoQuota());
@@ -240,6 +246,7 @@ export default function ShootingCoachTab({
       if (result.poses.length > 0) {
         const first = result.poses[0];
         setSelectedPoseId(first.poseId);
+        setSelectedAiPoseIndex(0);
         setPosePos({ x: first.xPercent, y: first.yPercent, scale: first.scale });
         setSkeletonOffset({ dx: 0, dy: 0 });
         setFlipPose(Boolean(first.flipHorizontal));
@@ -282,8 +289,9 @@ export default function ShootingCoachTab({
     setPosePos((prev) => remapPoseForCrop(prev, guide.suggestedCrop!, next));
   };
 
-  const handleSelectAiPose = (p: PoseSuggestion) => {
+  const handleSelectAiPose = (p: PoseSuggestion, idx: number) => {
     setSelectedPoseId(p.poseId);
+    setSelectedAiPoseIndex(idx);
     setFlipPose(Boolean(p.flipHorizontal));
     setSkeletonOffset({ dx: 0, dy: 0 });
     setRefSkeleton(null);
@@ -326,7 +334,10 @@ export default function ShootingCoachTab({
   };
 
   const activeTemplate = getPoseById(selectedPoseId);
-  const activeAiPose = guide?.poses.find((p) => p.poseId === selectedPoseId);
+  const activeAiPose =
+    !showAllPoses && guide?.poses
+      ? guide.poses[selectedAiPoseIndex] || guide.poses.find((p) => p.poseId === selectedPoseId)
+      : undefined;
   const activeDynamicSkeleton = refSkeleton || (!showAllPoses ? activeAiPose?.skeleton : undefined);
   const activeTipText = refSkeleton
     ? 'Khung dáng được tách tự động từ Ảnh mẫu của bạn (kéo để chỉnh vị trí).'
@@ -721,14 +732,14 @@ export default function ShootingCoachTab({
 
               <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
                 {guide && !showAllPoses
-                  ? guide.poses.map((p) => {
+                  ? guide.poses.map((p, idx) => {
                       const tpl = getPoseById(p.poseId);
-                      const active = selectedPoseId === p.poseId && showOverlay;
+                      const active = selectedAiPoseIndex === idx && showOverlay;
                       return (
                         <button
-                          key={p.poseId}
+                          key={`${p.poseId}-${idx}`}
                           type="button"
-                          onClick={() => handleSelectAiPose(p)}
+                          onClick={() => handleSelectAiPose(p, idx)}
                           className={`flex shrink-0 items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[12px] transition-all ${
                             active
                               ? 'border-amber-500 bg-amber-50 font-semibold text-amber-950'
@@ -738,7 +749,7 @@ export default function ShootingCoachTab({
                           <span className="rounded bg-rose-500/15 px-1 text-[9px] font-bold text-rose-700">
                             AI
                           </span>
-                          <span>{tpl.name}</span>
+                          <span>{p.poseTitle || tpl.name}</span>
                         </button>
                       );
                     })
