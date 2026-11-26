@@ -282,6 +282,15 @@ async function callGeminiFlash(payload: any, apiKey: string): Promise<string> {
       );
     }
 
+    if (
+      response.status === 400 &&
+      lastErrorDetail.toLowerCase().includes('location is not supported')
+    ) {
+      throw new Error(
+        'Vùng mạng hiện tại (hoặc máy chủ Proxy/VPN) chưa được Google Gemini hỗ trợ. Hãy tắt VPN hoặc nhập trực tiếp API Key cá nhân trong Cài đặt.',
+      );
+    }
+
     // Nếu key sai hoặc không có quyền (400, 401, 403), dừng ngay
     if (response.status === 400 || response.status === 401 || response.status === 403) {
       throw new Error(
