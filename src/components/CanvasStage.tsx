@@ -1,11 +1,12 @@
 import { useRef, useState } from 'react';
-import { Columns2, MoveHorizontal } from 'lucide-react';
+import { Columns2, MoveHorizontal, RefreshCw } from 'lucide-react';
 
 interface CanvasStageProps {
   canvasRef: React.RefObject<HTMLCanvasElement>;
   showOriginal: boolean;
   originalUrl?: string | null;
   onHoldOriginal?: (pressed: boolean) => void;
+  onChangePhoto?: () => void;
 }
 
 export default function CanvasStage({
@@ -13,6 +14,7 @@ export default function CanvasStage({
   showOriginal,
   originalUrl,
   onHoldOriginal,
+  onChangePhoto,
 }: CanvasStageProps) {
   const [compareMode, setCompareMode] = useState(false);
   const [splitPos, setSplitPos] = useState(50);
@@ -101,19 +103,32 @@ export default function CanvasStage({
       </div>
 
       {originalUrl && !showOriginal && (
-        <button
-          type="button"
-          onClick={() => setCompareMode((m) => !m)}
-          className={`absolute right-4 top-3 z-10 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium shadow-xs backdrop-blur-xs transition-all ${
-            compareMode
-              ? 'border-amber-500 bg-amber-400/95 text-zinc-950 font-semibold'
-              : 'border-zinc-200/80 bg-white/85 text-zinc-700 hover:bg-white'
-          }`}
-          title="Kéo thanh chia đôi để so sánh Trước / Sau"
-        >
-          <Columns2 size={13} />
-          <span>{compareMode ? 'Tắt so sánh' : 'So sánh'}</span>
-        </button>
+        <div className="absolute right-4 top-3 z-10 flex items-center gap-1.5">
+          {onChangePhoto && (
+            <button
+              type="button"
+              onClick={onChangePhoto}
+              className="inline-flex items-center gap-1 rounded-full border border-zinc-200/80 bg-white/85 px-2.5 py-1 text-[11px] font-medium text-zinc-700 shadow-xs backdrop-blur-xs transition-all hover:bg-white"
+              title="Đổi ảnh khác để chỉnh màu"
+            >
+              <RefreshCw size={12} />
+              <span>Đổi ảnh</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setCompareMode((m) => !m)}
+            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium shadow-xs backdrop-blur-xs transition-all ${
+              compareMode
+                ? 'border-amber-500 bg-amber-400/95 text-zinc-950 font-semibold'
+                : 'border-zinc-200/80 bg-white/85 text-zinc-700 hover:bg-white'
+            }`}
+            title="Kéo thanh chia đôi để so sánh Trước / Sau"
+          >
+            <Columns2 size={13} />
+            <span>{compareMode ? 'Tắt so sánh' : 'So sánh'}</span>
+          </button>
+        </div>
       )}
 
       {showOriginal && (

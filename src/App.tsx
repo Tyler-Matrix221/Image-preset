@@ -71,6 +71,8 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [activeMode, setActiveMode] = useState<'color' | 'shoot'>('color');
   const [colorToolTab, setColorToolTab] = useState<'preset' | 'ai' | 'adjust'>('preset');
+  const [shootDraftFile, setShootDraftFile] = useState<File | null>(null);
+  const changePhotoInputRef = useRef<HTMLInputElement>(null);
   const [previewSrc, setPreviewSrc] = useState<HTMLCanvasElement | null>(null);
   const originalPreviewUrl = useMemo(
     () => (previewSrc ? previewSrc.toDataURL('image/jpeg', 0.9) : null),
@@ -227,7 +229,7 @@ export default function App() {
   }, [ready, panel, intensity, splitTone, showOriginal, activePreset, render]);
 
   useEffect(() => {
-    if (!previewSrc) return;
+    if (activeMode !== 'color' || !previewSrc) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     canvas.width = previewSrc.width;
@@ -246,7 +248,7 @@ export default function App() {
       setPreviewSrc(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewSrc]);
+  }, [previewSrc, activeMode]);
 
   // Tự động ẩn thông báo lỗi sau 4.5 giây
   useEffect(() => {
@@ -653,17 +655,37 @@ export default function App() {
             await handleFile(file);
             setActiveMode('color');
           }}
+          onSceneFileChange={setShootDraftFile}
           onError={setError}
         />
       ) : !ready ? (
-        <UploadZone onFile={handleFile} error={error} />
+        <UploadZone
+          onFile={handleFile}
+          error={error}
+          shootDraftFile={shootDraftFile}
+          onUseShootDraft={() => {
+            if (shootDraftFile) handleFile(shootDraftFile);
+          }}
+        />
       ) : (
         <>
+          <input
+            ref={changePhotoInputRef}
+            type="file"
+            accept="image/jpeg,image/png"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleFile(file);
+              e.target.value = '';
+            }}
+          />
           <CanvasStage
             canvasRef={canvasRef}
             showOriginal={showOriginal}
             originalUrl={originalPreviewUrl}
             onHoldOriginal={setShowOriginal}
+            onChangePhoto={() => changePhotoInputRef.current?.click()}
           />
           <div className="relative z-10 flex shrink-0 flex-col border-t border-zinc-200/80 bg-white/95 shadow-[0_-4px_24px_rgba(0,0,0,0.05)]">
             {/* Thanh Cường độ % luôn ghim cố định ngay dưới ảnh */}

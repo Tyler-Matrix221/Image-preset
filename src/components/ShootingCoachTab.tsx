@@ -39,6 +39,7 @@ interface ShootingCoachTabProps {
   onQuotaUpdated: (q: DemoQuota | null) => void;
   onOpenSettings: (limitNotice?: string) => void;
   onSendToColorTab: (file: File) => void;
+  onSceneFileChange?: (file: File | null) => void;
   onError: (msg: string) => void;
 }
 
@@ -48,6 +49,7 @@ export default function ShootingCoachTab({
   onQuotaUpdated,
   onOpenSettings,
   onSendToColorTab,
+  onSceneFileChange,
   onError,
 }: ShootingCoachTabProps) {
   const [sceneFile, setSceneFile] = useState<File | null>(null);
@@ -112,6 +114,10 @@ export default function ShootingCoachTab({
     if (outerStageRef.current) ro.observe(outerStageRef.current);
     return () => ro.disconnect();
   }, [sceneUrl]);
+
+  useEffect(() => {
+    onSceneFileChange?.(cropPreviewActive && croppedFile ? croppedFile : sceneFile);
+  }, [sceneFile, croppedFile, cropPreviewActive, onSceneFileChange]);
 
   const handleSelectScene = async (file: File) => {
     if (!file.type.startsWith('image/')) {
