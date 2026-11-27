@@ -6,6 +6,8 @@ preview_urls = false
 
 [vars]
 DAILY_LIMIT = "5"
+AUTH_DAILY_LIMIT = "15"
+FIREBASE_PROJECT_ID = "studio-image-e9a1b"
 
 [[kv_namespaces]]
 binding = "RATE_LIMIT_KV"

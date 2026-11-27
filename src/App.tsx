@@ -1,7 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Camera, Palette, Redo2, Settings, Undo2 } from 'lucide-react';
+import {
+  Camera,
+  LogIn,
+  LogOut,
+  Palette,
+  Redo2,
+  Settings,
+  SlidersHorizontal,
+  Sparkles,
+  Layers,
+  Undo2,
+} from 'lucide-react';
 import CanvasStage from '@/components/CanvasStage';
-import ControlsPanel from '@/components/ControlsPanel';
+import { BottomActionBar, IntensityBar } from '@/components/ControlsPanel';
 import AdjustPanel from '@/components/AdjustPanel';
 import PresetStrip from '@/components/PresetStrip';
 import UploadZone from '@/components/UploadZone';
@@ -42,6 +53,12 @@ import {
   requestAiColorSuggestion,
   type DemoQuota,
 } from '@/lib/geminiApi';
+import {
+  signInWithGoogle,
+  signOutUser,
+  subscribeAuth,
+  type AuthUser,
+} from '@/lib/firebaseAuth';
 
 const PREVIEW_MAX_SIDE = 2048;
 const BUILTIN_PRESET_IDS = new Set(PRESETS.map((p) => p.id));
@@ -53,6 +70,9 @@ export default function App() {
 
   const [ready, setReady] = useState(false);
   const [activeMode, setActiveMode] = useState<'color' | 'shoot'>('color');
+  const [colorToolTab, setColorToolTab] = useState<'preset' | 'ai' | 'adjust'>('preset');
+  const [shootDraftFile, setShootDraftFile] = useState<File | null>(null);
+  const changePhotoInputRef = useRef<HTMLInputElement>(null);
   const [previewSrc, setPreviewSrc] = useState<HTMLCanvasElement | null>(null);
   const originalPreviewUrl = useMemo(
     () => (previewSrc ? previewSrc.toDataURL('image/jpeg', 0.9) : null),
@@ -124,13 +144,21 @@ export default function App() {
     saveCustomPresets(presets, BUILTIN_PRESET_IDS);
   }, [presets]);
 
-  // Cài đặt API key & Trạng thái gọi AI
+  // Cài đặt API key, Tài khoản & Trạng thái gọi AI
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [cloneModalOpen, setCloneModalOpen] = useState(false);
   const [hasApiKey, setHasApiKey] = useState(() => Boolean(getStoredApiKey()));
   const [demoQuota, setDemoQuota] = useState<DemoQuota | null>(() => getDemoQuota());
   const [limitNotice, setLimitNotice] = useState<string | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
+
+  useEffect(() => {
+    return subscribeAuth((user) => {
+      setAuthUser(user);
+    });
+  }, []);
 
   useEffect(() => {
     if (!hasApiKey && hasDemoProxy()) {
@@ -138,7 +166,28 @@ export default function App() {
         if (q) setDemoQuota(q);
       });
     }
-  }, [hasApiKey]);
+  }, [hasApiKey, authUser?.uid]);
+
+  const handleSignIn = useCallback(async () => {
+    if (authLoading) return;
+    setAuthLoading(true);
+    try {
+      await signInWithGoogle();
+      setLimitNotice(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Đăng nhập Google thất bại');
+    } finally {
+      setAuthLoading(false);
+    }
+  }, [authLoading]);
+
+  const handleSignOut = useCallback(async () => {
+    try {
+      await signOutUser();
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const activePreset = presets.find((p) => p.id === activePresetId);
   const isLutActive = Boolean(activePreset?.lut);
@@ -180,7 +229,7 @@ export default function App() {
   }, [ready, panel, intensity, splitTone, showOriginal, activePreset, render]);
 
   useEffect(() => {
-    if (!previewSrc) return;
+    if (activeMode !== 'color' || !previewSrc) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     canvas.width = previewSrc.width;
@@ -199,7 +248,7 @@ export default function App() {
       setPreviewSrc(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewSrc]);
+  }, [previewSrc, activeMode]);
 
   // Tự động ẩn thông báo lỗi sau 4.5 giây
   useEffect(() => {
@@ -471,11 +520,13 @@ export default function App() {
 
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-zinc-100 text-zinc-900">
-      <header className="flex flex-col gap-2 border-b border-zinc-200/80 bg-white/85 px-4 pb-2.5 pt-3.5 backdrop-blur">
+      <header className="flex flex-col gap-1.5 sm:gap-2 border-b border-zinc-200/80 bg-white/85 px-3 py-2 sm:px-4 sm:pb-2.5 sm:pt-3.5 backdrop-blur">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-[17px] font-bold tracking-tight text-zinc-900">Studio Màu</h1>
-            <p className="text-[11.5px] text-zinc-500">
+            <h1 className="text-[16px] sm:text-[17px] font-bold tracking-tight text-zinc-900">
+              Studio Màu
+            </h1>
+            <p className="hidden sm:block text-[11.5px] text-zinc-500">
               {activeMode === 'color'
                 ? 'Chỉnh màu ảnh ngay trên máy của bạn'
                 : 'Canh góc, thông số & tạo dáng trước khi chụp'}
@@ -508,6 +559,47 @@ export default function App() {
                   {fullImageRef.current?.naturalWidth}×{fullImageRef.current?.naturalHeight}
                 </span>
               </>
+            )}
+            {authUser ? (
+              <div className="flex items-center gap-1 rounded-xl border border-zinc-200 bg-white pl-1.5 pr-1 py-0.5 shadow-2xs">
+                {authUser.photoURL ? (
+                  <img
+                    src={authUser.photoURL}
+                    alt={authUser.displayName || 'Avatar'}
+                    className="h-6 w-6 rounded-full object-cover"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-100 text-[11px] font-bold text-amber-800">
+                    {(authUser.displayName || authUser.email || 'U')[0].toUpperCase()}
+                  </span>
+                )}
+                <span className="hidden sm:inline max-w-[100px] truncate px-1 text-[11.5px] font-medium text-zinc-700">
+                  {authUser.displayName?.split(' ')[0] || authUser.email?.split('@')[0]}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  className="flex h-6 w-6 items-center justify-center rounded-lg text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 transition-colors"
+                  title={`Đăng xuất (${authUser.email || authUser.displayName || 'Tài khoản'})`}
+                  aria-label="Đăng xuất"
+                >
+                  <LogOut size={13} />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={handleSignIn}
+                disabled={authLoading}
+                className="flex h-8 items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-2.5 text-[12px] font-medium text-zinc-700 shadow-2xs hover:bg-zinc-50 hover:text-zinc-900 disabled:opacity-50 transition-colors"
+                title="Đăng nhập Google để nhận 15 lượt AI/ngày"
+              >
+                <LogIn size={14} />
+                <span className="hidden xs:inline sm:inline">
+                  {authLoading ? 'Đang vào...' : 'Đăng nhập'}
+                </span>
+              </button>
             )}
             <button
               type="button"
@@ -563,69 +655,147 @@ export default function App() {
             await handleFile(file);
             setActiveMode('color');
           }}
+          onSceneFileChange={setShootDraftFile}
           onError={setError}
         />
       ) : !ready ? (
-        <UploadZone onFile={handleFile} error={error} />
+        <UploadZone
+          onFile={handleFile}
+          error={error}
+          shootDraftFile={shootDraftFile}
+          onUseShootDraft={() => {
+            if (shootDraftFile) handleFile(shootDraftFile);
+          }}
+        />
       ) : (
         <>
+          <input
+            ref={changePhotoInputRef}
+            type="file"
+            accept="image/jpeg,image/png"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleFile(file);
+              e.target.value = '';
+            }}
+          />
           <CanvasStage
             canvasRef={canvasRef}
             showOriginal={showOriginal}
             originalUrl={originalPreviewUrl}
+            onHoldOriginal={setShowOriginal}
+            onChangePhoto={() => changePhotoInputRef.current?.click()}
           />
-          <div className="relative z-10 max-h-[56dvh] shrink-0 space-y-3 overflow-y-auto overscroll-contain border-t border-zinc-200/80 bg-white/95 pt-3 shadow-[0_-4px_24px_rgba(0,0,0,0.04)]">
-            <div className="px-4">
-              <PresetStrip
-                presets={presets}
-                builtInIds={BUILTIN_PRESET_IDS}
-                activePresetId={activePresetId}
-                params={panel}
-                onSelect={(p, tone, id) => {
-                  handlePresetSelect(p, tone, id);
-                  pushHistory(id ? applyPresetGuards(p, id) : clampParams(p), true);
-                }}
-                onImportPreset={handleImportPreset}
-                onOpenCloneModal={() => setCloneModalOpen(true)}
-                onSavePreset={handleSavePreset}
-                onDeletePreset={handleDeletePreset}
-                onError={setError}
-              />
-            </div>
-            <div className="px-4">
-              <AiSuggestionPanel
-                onGenerate={handleAiGenerate}
-                onMatchColor={handleAiMatchColor}
-                isLoading={isAiLoading}
-                hasApiKey={hasApiKey}
-                demoQuota={demoQuota}
-                onOpenSettings={() => {
-                  setLimitNotice(null);
-                  setSettingsOpen(true);
-                }}
-              />
-            </div>
-            <AdjustPanel
-              params={panel}
-              onParamChange={handleParamChange}
-              onHslChange={handleHslChange}
-              onResetAll={handleResetAll}
-              onExportXmp={() =>
-                downloadXmpPreset(panel, activePreset?.name || 'studio-mau-preset')
-              }
-              resetDisabled={
-                isLutActive || (activePreset ? paramsEqual(panel, activePreset.params) : false)
-              }
-              isLutActive={isLutActive}
-            />
-            <ControlsPanel
+          <div className="relative z-10 flex shrink-0 flex-col border-t border-zinc-200/80 bg-white/95 shadow-[0_-4px_24px_rgba(0,0,0,0.05)]">
+            {/* Thanh Cường độ % luôn ghim cố định ngay dưới ảnh */}
+            <IntensityBar
               intensity={intensity}
               onIntensityChange={setIntensity}
+              intensityDisabled={isIntensityDisabled}
+            />
+
+            {/* Thanh 3 Tab hành động gọn cho mobile: Preset | AI Màu | Tinh chỉnh */}
+            <div className="mx-4 mb-2 flex rounded-xl bg-zinc-100 p-0.5 text-[12px] font-medium">
+              <button
+                type="button"
+                onClick={() => setColorToolTab('preset')}
+                className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 transition-all ${
+                  colorToolTab === 'preset'
+                    ? 'bg-white font-semibold text-zinc-900 shadow-2xs'
+                    : 'text-zinc-500 hover:text-zinc-800'
+                }`}
+              >
+                <Layers size={13} />
+                <span>Preset</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setColorToolTab('ai')}
+                className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 transition-all ${
+                  colorToolTab === 'ai'
+                    ? 'bg-white font-semibold text-zinc-900 shadow-2xs'
+                    : 'text-zinc-500 hover:text-zinc-800'
+                }`}
+              >
+                <Sparkles size={13} className="text-amber-500" />
+                <span>AI Màu</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setColorToolTab('adjust')}
+                className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 transition-all ${
+                  colorToolTab === 'adjust'
+                    ? 'bg-white font-semibold text-zinc-900 shadow-2xs'
+                    : 'text-zinc-500 hover:text-zinc-800'
+                }`}
+              >
+                <SlidersHorizontal size={13} />
+                <span>Tinh chỉnh</span>
+              </button>
+            </div>
+
+            {/* Nội dung theo từng Tab (không xếp chồng gây scroll dài) */}
+            <div className="max-h-[27dvh] sm:max-h-[32dvh] overflow-y-auto overscroll-contain pb-2">
+              {colorToolTab === 'preset' && (
+                <div className="px-4 pt-1">
+                  <PresetStrip
+                    presets={presets}
+                    builtInIds={BUILTIN_PRESET_IDS}
+                    activePresetId={activePresetId}
+                    params={panel}
+                    onSelect={(p, tone, id) => {
+                      handlePresetSelect(p, tone, id);
+                      pushHistory(id ? applyPresetGuards(p, id) : clampParams(p), true);
+                    }}
+                    onImportPreset={handleImportPreset}
+                    onOpenCloneModal={() => setCloneModalOpen(true)}
+                    onSavePreset={handleSavePreset}
+                    onDeletePreset={handleDeletePreset}
+                    onError={setError}
+                  />
+                </div>
+              )}
+
+              {colorToolTab === 'ai' && (
+                <div className="px-4 pt-1">
+                  <AiSuggestionPanel
+                    onGenerate={handleAiGenerate}
+                    onMatchColor={handleAiMatchColor}
+                    isLoading={isAiLoading}
+                    hasApiKey={hasApiKey}
+                    demoQuota={demoQuota}
+                    onOpenSettings={() => {
+                      setLimitNotice(null);
+                      setSettingsOpen(true);
+                    }}
+                  />
+                </div>
+              )}
+
+              {colorToolTab === 'adjust' && (
+                <AdjustPanel
+                  params={panel}
+                  onParamChange={handleParamChange}
+                  onHslChange={handleHslChange}
+                  onResetAll={handleResetAll}
+                  onExportXmp={() =>
+                    downloadXmpPreset(panel, activePreset?.name || 'studio-mau-preset')
+                  }
+                  resetDisabled={
+                    isLutActive || (activePreset ? paramsEqual(panel, activePreset.params) : false)
+                  }
+                  isLutActive={isLutActive}
+                />
+              )}
+            </div>
+
+            {/* Thanh đáy cố định: Giữ xem gốc & Xuất ảnh */}
+            <BottomActionBar
               onExport={() => setExportModalOpen(true)}
               onHoldOriginal={setShowOriginal}
               exporting={exporting}
               showOriginal={showOriginal}
-              intensityDisabled={isIntensityDisabled}
             />
           </div>
         </>

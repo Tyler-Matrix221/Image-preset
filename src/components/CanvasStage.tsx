@@ -1,16 +1,20 @@
 import { useRef, useState } from 'react';
-import { Columns2, MoveHorizontal } from 'lucide-react';
+import { Columns2, MoveHorizontal, RefreshCw } from 'lucide-react';
 
 interface CanvasStageProps {
   canvasRef: React.RefObject<HTMLCanvasElement>;
   showOriginal: boolean;
   originalUrl?: string | null;
+  onHoldOriginal?: (pressed: boolean) => void;
+  onChangePhoto?: () => void;
 }
 
 export default function CanvasStage({
   canvasRef,
   showOriginal,
   originalUrl,
+  onHoldOriginal,
+  onChangePhoto,
 }: CanvasStageProps) {
   const [compareMode, setCompareMode] = useState(false);
   const [splitPos, setSplitPos] = useState(50);
@@ -31,10 +35,16 @@ export default function CanvasStage({
       <div
         ref={wrapperRef}
         onPointerDown={(e) => {
-          if (!compareMode || showOriginal) return;
-          draggingRef.current = true;
-          e.currentTarget.setPointerCapture(e.pointerId);
-          updatePosition(e.clientX);
+          if (compareMode && !showOriginal) {
+            draggingRef.current = true;
+            e.currentTarget.setPointerCapture(e.pointerId);
+            updatePosition(e.clientX);
+            return;
+          }
+          if (!compareMode && onHoldOriginal) {
+            e.currentTarget.setPointerCapture(e.pointerId);
+            onHoldOriginal(true);
+          }
         }}
         onPointerMove={(e) => {
           if (!draggingRef.current || !compareMode || showOriginal) return;
@@ -42,18 +52,28 @@ export default function CanvasStage({
         }}
         onPointerUp={() => {
           draggingRef.current = false;
+          if (!compareMode && onHoldOriginal) onHoldOriginal(false);
         }}
         onPointerCancel={() => {
           draggingRef.current = false;
+          if (!compareMode && onHoldOriginal) onHoldOriginal(false);
         }}
-        className={`relative flex h-full w-full items-center justify-center overflow-hidden select-none ${
-          compareMode && !showOriginal ? 'touch-none cursor-ew-resize' : ''
+        onContextMenu={(e) => e.preventDefault()}
+        className={`relative flex h-full w-full items-center justify-center overflow-hidden select-none touch-none ${
+          compareMode && !showOriginal ? 'cursor-ew-resize' : 'cursor-pointer'
         }`}
+        title={compareMode ? 'Kéo để so sánh Trước / Sau' : 'Chạm giữ vào ảnh để xem ảnh gốc'}
       >
         <canvas
           ref={canvasRef}
           className="block max-h-full max-w-full rounded-xl object-contain shadow-[0_6px_30px_rgba(0,0,0,0.12)] border border-zinc-300/60"
         />
+
+        {showOriginal && (
+          <span className="pointer-events-none absolute left-2.5 top-2.5 z-10 rounded-full bg-zinc-900/80 px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm backdrop-blur-xs">
+            Ảnh gốc
+          </span>
+        )}
 
         {compareMode && !showOriginal && originalUrl && (
           <>
@@ -83,19 +103,32 @@ export default function CanvasStage({
       </div>
 
       {originalUrl && !showOriginal && (
-        <button
-          type="button"
-          onClick={() => setCompareMode((m) => !m)}
-          className={`absolute right-4 top-3 z-10 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium shadow-xs backdrop-blur-xs transition-all ${
-            compareMode
-              ? 'border-amber-500 bg-amber-400/95 text-zinc-950 font-semibold'
-              : 'border-zinc-200/80 bg-white/85 text-zinc-700 hover:bg-white'
-          }`}
-          title="Kéo thanh chia đôi để so sánh Trước / Sau"
-        >
-          <Columns2 size={13} />
-          <span>{compareMode ? 'Tắt so sánh' : 'So sánh'}</span>
-        </button>
+        <div className="absolute right-4 top-3 z-10 flex items-center gap-1.5">
+          {onChangePhoto && (
+            <button
+              type="button"
+              onClick={onChangePhoto}
+              className="inline-flex items-center gap-1 rounded-full border border-zinc-200/80 bg-white/85 px-2.5 py-1 text-[11px] font-medium text-zinc-700 shadow-xs backdrop-blur-xs transition-all hover:bg-white"
+              title="Đổi ảnh khác để chỉnh màu"
+            >
+              <RefreshCw size={12} />
+              <span>Đổi ảnh</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setCompareMode((m) => !m)}
+            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium shadow-xs backdrop-blur-xs transition-all ${
+              compareMode
+                ? 'border-amber-500 bg-amber-400/95 text-zinc-950 font-semibold'
+                : 'border-zinc-200/80 bg-white/85 text-zinc-700 hover:bg-white'
+            }`}
+            title="Kéo thanh chia đôi để so sánh Trước / Sau"
+          >
+            <Columns2 size={13} />
+            <span>{compareMode ? 'Tắt so sánh' : 'So sánh'}</span>
+          </button>
+        </div>
       )}
 
       {showOriginal && (

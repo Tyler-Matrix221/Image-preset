@@ -10,6 +10,7 @@ import {
 } from '@/rules/params';
 import { POSE_TEMPLATES } from '@/rules/poseTemplates';
 import type { PhotoExif } from '@/lib/exifReader';
+import { getFirebaseIdToken } from '@/lib/firebaseAuth';
 
 export const GEMINI_STORAGE_KEY = 'gemini_api_key';
 
@@ -45,10 +46,22 @@ export function getDemoQuota(): DemoQuota | null {
   return cachedDemoQuota;
 }
 
+async function buildProxyHeaders(
+  extra?: Record<string, string>,
+): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { ...(extra || {}) };
+  const token = await getFirebaseIdToken();
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return headers;
+}
+
 export async function fetchDemoQuota(): Promise<DemoQuota | null> {
   if (!DEMO_PROXY_URL) return null;
   try {
-    const res = await fetch(`${DEMO_PROXY_URL}/quota`);
+    const headers = await buildProxyHeaders();
+    const res = await fetch(`${DEMO_PROXY_URL}/quota`, { headers });
     if (!res.ok) return null;
     const data = await res.json();
     if (typeof data?.limit === 'number' && typeof data?.remaining === 'number') {
@@ -222,11 +235,12 @@ async function callGeminiFlash(payload: any, apiKey: string): Promise<string> {
     const timeoutTimer = setTimeout(() => controller.abort(), PER_MODEL_TIMEOUT_MS);
 
     try {
+      const headers = useProxy
+        ? await buildProxyHeaders({ 'Content-Type': 'application/json' })
+        : { 'Content-Type': 'application/json' };
       response = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify(useProxy ? { model, payload } : payload),
         signal: controller.signal,
       });
@@ -321,9 +335,10 @@ async function callGeminiFlash(payload: any, apiKey: string): Promise<string> {
     const fbController = new AbortController();
     const fbTimer = setTimeout(() => fbController.abort(), 45000);
     try {
+      const fbHeaders = await buildProxyHeaders({ 'Content-Type': 'application/json' });
       const fbRes = await fetch(`${DEMO_PROXY_URL}/vision-fallback`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: fbHeaders,
         body: JSON.stringify({ payload }),
         signal: fbController.signal,
       });
@@ -848,16 +863,22 @@ Analyze Image 1 carefully and return practical, easy-to-follow guidance in VIETN
   } For each pose provide:
    - "poseId": closest matching id from ALLOWED POSE IDS
    - "poseTitle": short, catchy Vietnamese pose name (2–5 words, e.g. "Ngồi sofa vắt chân", "Chống cằm tựa bàn", "Đứng bắt chéo chân")
-   - "tip": 1 short, natural Vietnamese instruction for the model.
-   - "xPercent": number 18..82 (horizontal % of Image 1 width where the center of the person should be; 0=left edge of Image 1, 100=right edge of Image 1). CRITICAL: If "tip" mentions standing next to a chair/table/railing, place "xPercent" BESIDE that object (never directly on top of the chair!), on open floor space. If sitting ON a sofa/chair, center "xPercent" directly over the seat cushion.
+   - "tip": 1 clear, grammatically complete Vietnamese sentence (18–30 words) with NO missing words. MUST explicitly specify ALL 3 details:
+     (a) Exact position relative to furniture (e.g. "Ngồi phía sau bàn làm việc", "Ngồi trên ghế da bên phải", "Đứng bên cạnh trái bàn").
+     (b) Explicit left vs right hand action (e.g. "tay phải đặt nhẹ lên mặt bàn cạnh cuốn sách đang mở, tay trái thả lỏng / chống nhẹ cằm").
+     (c) Exact gaze direction (e.g. "mắt cúi nhìn xuống trang sách" or "quay mặt nhìn thẳng ống kính").
+   - "xPercent": number 18..82 (horizontal % of Image 1 width where the center of the person should be; 0=left edge of Image 1, 100=right edge of Image 1). CRITICAL: If "tip" mentions standing next to a chair/table/railing, place "xPercent" BESIDE that object (never directly on top of the chair!), on open floor space. If sitting ON a sofa/chair or BEHIND a table, center "xPercent" over the seat or behind the table.
    - "yPercent": number 42..75 (vertical % of Image 1 height for the center of the person; keep feet grounded naturally on the floor/ground, NOT floating above furniture!).
    - "scale": number 0.55..1.15 (realistic human height relative to Image 1 height)
    - "flipHorizontal": boolean. Follow the photography Lead Room rule: if the person stands on the left side (xPercent < 50), orient them facing/leaning toward the center-right background; if on the right side (xPercent > 50), orient them toward center-left.
-   - "skeleton": An object of 20 anatomical body joint coordinates in Image 1 (% of Image 1 width x=0..100 and height y=0..100) so the app can draw a natural, fluid human pose outline interacting ACCURATELY with exact surfaces in Image 1:
+   - "skeleton": An object of 20 anatomical body joint coordinates in Image 1 (% of Image 1 width x=0..100 and height y=0..100) that MUST MATCH your "tip" 1-to-1:
+     * Remember viewer coordinates: viewer-LEFT is smaller x, viewer-RIGHT is larger x. If model faces camera, model's RIGHT hand ("rElbow","rWrist","rHand") is on viewer-LEFT, and model's LEFT hand ("lElbow","lWrist","lHand") is on viewer-RIGHT.
+     * If SITTING behind a table/desk: place "lHip" & "rHip" at tabletop height, bend "lKnee" & "rKnee" sharply sideways/horizontally (small y change from hip, NEVER straight vertical standing legs!), and keep "lAnkle"/"rAnkle" tucked naturally underneath.
      * If SITTING on a sofa/chair/bench: place "lHip" & "rHip" right on top of the visible seat cushion surface, bend "lKnee" & "rKnee" forward over the seat edge, and ground "lAnkle"/"rAnkle"/"lFoot"/"rFoot" on the floor below.
-     * If LEANING on a table/railing/armrest: place the supporting "lElbow"/"rElbow" or "lHand"/"rHand" directly on that visible edge.
+     * If "tip" says a specific hand/elbow rests on a table/book/railing/armrest/chin: place that exact "lHand"/"rHand" (and elbow/wrist) at the exact (x, y) of that object in Image 1.
      * If STANDING: keep "lFoot" & "rFoot" planted on the visible floor plane (usually y=74..90) with realistic human limb proportions.
-     Required keys: "head", "faceTarget" (gaze/chin direction point near head), "neck", "spineMid" (mid-torso waist curve point), "lShoulder", "rShoulder", "lElbow", "rElbow", "lWrist", "rWrist", "lHand" (fingertips), "rHand", "lHip", "rHip", "lKnee", "rKnee", "lAnkle", "rAnkle", "lFoot" (toes), "rFoot" — each as {"x": number, "y": number}.
+     * "faceTarget": MUST point in the exact gaze direction described in "tip" (downward toward the book if reading, toward camera center if looking at lens, or sideways if looking aside).
+     Required keys: "head", "faceTarget", "neck", "spineMid" (mid-torso waist curve point), "lShoulder", "rShoulder", "lElbow", "rElbow", "lWrist", "rWrist", "lHand" (fingertips), "rHand", "lHip", "rHip", "lKnee", "rKnee", "lAnkle", "rAnkle", "lFoot" (toes), "rFoot" — each as {"x": number, "y": number}.
 5. "suggestedCrop": Propose a cleaner framing crop box on Image 1 so the photographer can see the ideal composition (removing messy edges, zooming closer to the main background/chair/anchor, placing key elements on the rule-of-thirds):
    - "xPercent": number 0..45 (left edge of crop box as % of Image 1 width)
    - "yPercent": number 0..45 (top edge of crop box as % of Image 1 height)
@@ -1071,9 +1092,10 @@ export async function generatePosePreviewImage({
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 35000);
     try {
+      const imgHeaders = await buildProxyHeaders({ 'Content-Type': 'application/json' });
       const res = await fetch(`${DEMO_PROXY_URL}/image-gen`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: imgHeaders,
         body: JSON.stringify({ prompt: genPrompt, size }),
         signal: controller.signal,
       });

@@ -3,8 +3,106 @@ export interface Env {
   OPENAI_API_KEY?: string;
   XAH_API_KEY?: string;
   DAILY_LIMIT?: string;
+  AUTH_DAILY_LIMIT?: string;
+  FIREBASE_PROJECT_ID?: string;
   ALLOWED_ORIGINS?: string;
   RATE_LIMIT_KV?: KVNamespace;
+}
+
+interface VerifiedFirebaseUser {
+  uid: string;
+  email?: string;
+}
+
+const JWKS_URL =
+  'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
+let cachedJwks: { keys: JsonWebKey[]; expiresAt: number } | null = null;
+
+function base64UrlToUint8Array(b64url: string): Uint8Array {
+  const padLen = (4 - (b64url.length % 4)) % 4;
+  const base64 = (b64url + '='.repeat(padLen)).replace(/-/g, '+').replace(/_/g, '/');
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) {
+    bytes[i] = bin.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function decodeBase64UrlJson(b64url: string): any {
+  const bytes = base64UrlToUint8Array(b64url);
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+async function getFirebaseJwks(): Promise<JsonWebKey[]> {
+  if (cachedJwks && Date.now() < cachedJwks.expiresAt) {
+    return cachedJwks.keys;
+  }
+  const res = await fetch(JWKS_URL);
+  if (!res.ok) return cachedJwks?.keys || [];
+  const data: any = await res.json();
+  const keys = Array.isArray(data?.keys) ? data.keys : [];
+  cachedJwks = { keys, expiresAt: Date.now() + 3600 * 1000 };
+  return keys;
+}
+
+async function verifyFirebaseToken(
+  authHeader: string | null,
+  projectId?: string,
+): Promise<VerifiedFirebaseUser | null> {
+  if (!authHeader || !projectId) return null;
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!match) return null;
+  const token = match[1].trim();
+  const segments = token.split('.');
+  if (segments.length !== 3) return null;
+
+  try {
+    const header = decodeBase64UrlJson(segments[0]);
+    const payload = decodeBase64UrlJson(segments[1]);
+    if (header?.alg !== 'RS256' || !header?.kid) return null;
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (
+      payload?.aud !== projectId ||
+      payload?.iss !== `https://securetoken.google.com/${projectId}` ||
+      typeof payload?.sub !== 'string' ||
+      !payload.sub ||
+      typeof payload?.exp !== 'number' ||
+      payload.exp <= nowSec
+    ) {
+      return null;
+    }
+
+    const keys = await getFirebaseJwks();
+    const jwk: any = keys.find((k: any) => k.kid === header.kid);
+    if (!jwk) return null;
+
+    const cryptoKey = await crypto.subtle.importKey(
+      'jwk',
+      jwk,
+      { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+      false,
+      ['verify'],
+    );
+
+    const signingInput = new TextEncoder().encode(`${segments[0]}.${segments[1]}`);
+    const signature = base64UrlToUint8Array(segments[2]);
+    const valid = await crypto.subtle.verify(
+      'RSASSA-PKCS1-v1_5',
+      cryptoKey,
+      signature,
+      signingInput,
+    );
+    if (!valid) return null;
+
+    return {
+      uid: payload.sub,
+      email: typeof payload.email === 'string' ? payload.email : undefined,
+    };
+  } catch {
+    return null;
+  }
 }
 
 const ALLOWED_MODELS = new Set([
@@ -30,7 +128,7 @@ function getCorsHeaders(request: Request, env: Env): Record<string, string> {
   return {
     'Access-Control-Allow-Origin': allowOrigin,
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Expose-Headers': 'X-RateLimit-Limit, X-RateLimit-Remaining',
     Vary: 'Origin',
   };
@@ -51,9 +149,17 @@ export default {
     }
 
     const url = new URL(request.url);
-    const limit = Math.max(1, Number(env.DAILY_LIMIT || 5));
+    const verifiedUser = await verifyFirebaseToken(
+      request.headers.get('Authorization'),
+      env.FIREBASE_PROJECT_ID,
+    );
+    const guestLimit = Math.max(1, Number(env.DAILY_LIMIT || 5));
+    const authLimit = Math.max(1, Number(env.AUTH_DAILY_LIMIT || 15));
+    const limit = verifiedUser ? authLimit : guestLimit;
     const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
-    const quotaKey = `quota:${clientIp}:${getVnDateKey()}`;
+    const quotaKey = verifiedUser
+      ? `quota:uid:${verifiedUser.uid}:${getVnDateKey()}`
+      : `quota:${clientIp}:${getVnDateKey()}`;
 
     const currentUsed = env.RATE_LIMIT_KV
       ? Number((await env.RATE_LIMIT_KV.get(quotaKey)) || '0')
@@ -62,15 +168,23 @@ export default {
     // Cho phép kiểm tra số lượt còn lại trong ngày
     if (request.method === 'GET' && url.pathname === '/quota') {
       const remaining = Math.max(0, limit - currentUsed);
-      return new Response(JSON.stringify({ limit, used: currentUsed, remaining }), {
-        status: 200,
-        headers: {
-          ...cors,
-          'Content-Type': 'application/json',
-          'X-RateLimit-Limit': String(limit),
-          'X-RateLimit-Remaining': String(remaining),
+      return new Response(
+        JSON.stringify({
+          limit,
+          used: currentUsed,
+          remaining,
+          authenticated: Boolean(verifiedUser),
+        }),
+        {
+          status: 200,
+          headers: {
+            ...cors,
+            'Content-Type': 'application/json',
+            'X-RateLimit-Limit': String(limit),
+            'X-RateLimit-Remaining': String(remaining),
+          },
         },
-      });
+      );
     }
 
     if (request.method !== 'POST') {
@@ -82,10 +196,13 @@ export default {
 
     // Kiểm tra giới hạn lượt dùng miễn phí trong ngày
     if (currentUsed >= limit) {
+      const limitMsg = verifiedUser
+        ? `Tài khoản của bạn đã dùng hết ${limit} lượt AI miễn phí hôm nay. Hãy quay lại vào ngày mai hoặc nhập Gemini API Key cá nhân trong Cài đặt!`
+        : `Bạn đã dùng hết ${limit} lượt dùng thử hôm nay. Đăng nhập Google để nhận ${authLimit} lượt/ngày, hoặc nhập Gemini API Key cá nhân!`;
       return new Response(
         JSON.stringify({
           code: 'DAILY_LIMIT_REACHED',
-          error: `Bạn đã dùng hết ${limit} lượt AI miễn phí hôm nay. Hãy nhập Gemini API Key cá nhân để tiếp tục không giới hạn, hoặc quay lại vào ngày mai!`,
+          error: limitMsg,
           limit,
           remaining: 0,
         }),

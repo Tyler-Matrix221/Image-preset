@@ -39,6 +39,7 @@ interface ShootingCoachTabProps {
   onQuotaUpdated: (q: DemoQuota | null) => void;
   onOpenSettings: (limitNotice?: string) => void;
   onSendToColorTab: (file: File) => void;
+  onSceneFileChange?: (file: File | null) => void;
   onError: (msg: string) => void;
 }
 
@@ -48,6 +49,7 @@ export default function ShootingCoachTab({
   onQuotaUpdated,
   onOpenSettings,
   onSendToColorTab,
+  onSceneFileChange,
   onError,
 }: ShootingCoachTabProps) {
   const [sceneFile, setSceneFile] = useState<File | null>(null);
@@ -112,6 +114,10 @@ export default function ShootingCoachTab({
     if (outerStageRef.current) ro.observe(outerStageRef.current);
     return () => ro.disconnect();
   }, [sceneUrl]);
+
+  useEffect(() => {
+    onSceneFileChange?.(cropPreviewActive && croppedFile ? croppedFile : sceneFile);
+  }, [sceneFile, croppedFile, cropPreviewActive, onSceneFileChange]);
 
   const handleSelectScene = async (file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -714,7 +720,7 @@ export default function ShootingCoachTab({
           </div>
 
           {/* Khu vực điều khiển bên dưới */}
-          <div className="relative z-10 max-h-[54dvh] shrink-0 space-y-3 overflow-y-auto overscroll-contain border-t border-zinc-200 bg-white px-4 py-3 shadow-[0_-4px_24px_rgba(0,0,0,0.06)]">
+          <div className="relative z-10 max-h-[52dvh] shrink-0 space-y-2 sm:space-y-3 overflow-y-auto overscroll-contain border-t border-zinc-200 bg-white px-3 py-2.5 sm:px-4 sm:py-3 shadow-[0_-4px_24px_rgba(0,0,0,0.06)]">
             {/* Dải chọn dáng (giống thanh chọn dáng bên dưới của Huawei) */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between text-[11.5px]">
@@ -902,31 +908,31 @@ export default function ShootingCoachTab({
 
             {/* Kết quả gợi ý thông số máy ảnh & góc chụp từ AI */}
             {guide && (
-              <div className="space-y-2.5 rounded-xl border border-zinc-200 bg-zinc-50/80 p-3 text-[12px]">
-                <div className="grid grid-cols-5 gap-1.5 text-center">
-                  <div className="rounded-lg bg-white p-1.5 border border-zinc-200/70">
-                    <div className="text-[10px] text-zinc-400">Khẩu</div>
+              <div className="space-y-2 rounded-xl border border-zinc-200 bg-zinc-50/80 p-2.5 sm:p-3 text-[11.5px] sm:text-[12px]">
+                <div className="grid grid-cols-5 gap-1 sm:gap-1.5 text-center">
+                  <div className="rounded-lg bg-white p-1 sm:p-1.5 border border-zinc-200/70">
+                    <div className="text-[9.5px] sm:text-[10px] text-zinc-400">Khẩu</div>
                     <div className="font-bold text-zinc-900">{guide.cameraSettings.aperture}</div>
                   </div>
-                  <div className="rounded-lg bg-white p-1.5 border border-zinc-200/70">
-                    <div className="text-[10px] text-zinc-400">Tốc</div>
+                  <div className="rounded-lg bg-white p-1 sm:p-1.5 border border-zinc-200/70">
+                    <div className="text-[9.5px] sm:text-[10px] text-zinc-400">Tốc</div>
                     <div className="font-bold text-zinc-900">{guide.cameraSettings.shutterSpeed}</div>
                   </div>
-                  <div className="rounded-lg bg-white p-1.5 border border-zinc-200/70">
-                    <div className="text-[10px] text-zinc-400">ISO</div>
+                  <div className="rounded-lg bg-white p-1 sm:p-1.5 border border-zinc-200/70">
+                    <div className="text-[9.5px] sm:text-[10px] text-zinc-400">ISO</div>
                     <div className="font-bold text-zinc-900">{guide.cameraSettings.iso}</div>
                   </div>
-                  <div className="rounded-lg bg-white p-1.5 border border-zinc-200/70">
-                    <div className="text-[10px] text-zinc-400">WB</div>
+                  <div className="rounded-lg bg-white p-1 sm:p-1.5 border border-zinc-200/70">
+                    <div className="text-[9.5px] sm:text-[10px] text-zinc-400">WB</div>
                     <div className="font-bold text-zinc-900">{guide.cameraSettings.whiteBalance}</div>
                   </div>
-                  <div className="rounded-lg bg-white p-1.5 border border-zinc-200/70">
-                    <div className="text-[10px] text-zinc-400">EV</div>
+                  <div className="rounded-lg bg-white p-1 sm:p-1.5 border border-zinc-200/70">
+                    <div className="text-[9.5px] sm:text-[10px] text-zinc-400">EV</div>
                     <div className="font-bold text-zinc-900">{guide.cameraSettings.ev}</div>
                   </div>
                 </div>
 
-                <div className="space-y-1 text-zinc-700">
+                <div className="space-y-1 leading-snug text-zinc-700">
                   <p>
                     <span className="font-semibold text-zinc-900">Ánh sáng:</span>{' '}
                     {guide.lightingSummary}
