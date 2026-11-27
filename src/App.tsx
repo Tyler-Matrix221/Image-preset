@@ -1,7 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Camera, LogIn, LogOut, Palette, Redo2, Settings, Undo2 } from 'lucide-react';
+import {
+  Camera,
+  LogIn,
+  LogOut,
+  Palette,
+  Redo2,
+  Settings,
+  SlidersHorizontal,
+  Sparkles,
+  Layers,
+  Undo2,
+} from 'lucide-react';
 import CanvasStage from '@/components/CanvasStage';
-import ControlsPanel from '@/components/ControlsPanel';
+import { BottomActionBar, IntensityBar } from '@/components/ControlsPanel';
 import AdjustPanel from '@/components/AdjustPanel';
 import PresetStrip from '@/components/PresetStrip';
 import UploadZone from '@/components/UploadZone';
@@ -59,6 +70,7 @@ export default function App() {
 
   const [ready, setReady] = useState(false);
   const [activeMode, setActiveMode] = useState<'color' | 'shoot'>('color');
+  const [colorToolTab, setColorToolTab] = useState<'preset' | 'ai' | 'adjust'>('preset');
   const [previewSrc, setPreviewSrc] = useState<HTMLCanvasElement | null>(null);
   const originalPreviewUrl = useMemo(
     () => (previewSrc ? previewSrc.toDataURL('image/jpeg', 0.9) : null),
@@ -506,11 +518,13 @@ export default function App() {
 
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-zinc-100 text-zinc-900">
-      <header className="flex flex-col gap-2 border-b border-zinc-200/80 bg-white/85 px-4 pb-2.5 pt-3.5 backdrop-blur">
+      <header className="flex flex-col gap-1.5 sm:gap-2 border-b border-zinc-200/80 bg-white/85 px-3 py-2 sm:px-4 sm:pb-2.5 sm:pt-3.5 backdrop-blur">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-[17px] font-bold tracking-tight text-zinc-900">Studio Màu</h1>
-            <p className="text-[11.5px] text-zinc-500">
+            <h1 className="text-[16px] sm:text-[17px] font-bold tracking-tight text-zinc-900">
+              Studio Màu
+            </h1>
+            <p className="hidden sm:block text-[11.5px] text-zinc-500">
               {activeMode === 'color'
                 ? 'Chỉnh màu ảnh ngay trên máy của bạn'
                 : 'Canh góc, thông số & tạo dáng trước khi chụp'}
@@ -649,59 +663,117 @@ export default function App() {
             canvasRef={canvasRef}
             showOriginal={showOriginal}
             originalUrl={originalPreviewUrl}
+            onHoldOriginal={setShowOriginal}
           />
-          <div className="relative z-10 max-h-[56dvh] shrink-0 space-y-3 overflow-y-auto overscroll-contain border-t border-zinc-200/80 bg-white/95 pt-3 shadow-[0_-4px_24px_rgba(0,0,0,0.04)]">
-            <div className="px-4">
-              <PresetStrip
-                presets={presets}
-                builtInIds={BUILTIN_PRESET_IDS}
-                activePresetId={activePresetId}
-                params={panel}
-                onSelect={(p, tone, id) => {
-                  handlePresetSelect(p, tone, id);
-                  pushHistory(id ? applyPresetGuards(p, id) : clampParams(p), true);
-                }}
-                onImportPreset={handleImportPreset}
-                onOpenCloneModal={() => setCloneModalOpen(true)}
-                onSavePreset={handleSavePreset}
-                onDeletePreset={handleDeletePreset}
-                onError={setError}
-              />
-            </div>
-            <div className="px-4">
-              <AiSuggestionPanel
-                onGenerate={handleAiGenerate}
-                onMatchColor={handleAiMatchColor}
-                isLoading={isAiLoading}
-                hasApiKey={hasApiKey}
-                demoQuota={demoQuota}
-                onOpenSettings={() => {
-                  setLimitNotice(null);
-                  setSettingsOpen(true);
-                }}
-              />
-            </div>
-            <AdjustPanel
-              params={panel}
-              onParamChange={handleParamChange}
-              onHslChange={handleHslChange}
-              onResetAll={handleResetAll}
-              onExportXmp={() =>
-                downloadXmpPreset(panel, activePreset?.name || 'studio-mau-preset')
-              }
-              resetDisabled={
-                isLutActive || (activePreset ? paramsEqual(panel, activePreset.params) : false)
-              }
-              isLutActive={isLutActive}
-            />
-            <ControlsPanel
+          <div className="relative z-10 flex shrink-0 flex-col border-t border-zinc-200/80 bg-white/95 shadow-[0_-4px_24px_rgba(0,0,0,0.05)]">
+            {/* Thanh Cường độ % luôn ghim cố định ngay dưới ảnh */}
+            <IntensityBar
               intensity={intensity}
               onIntensityChange={setIntensity}
+              intensityDisabled={isIntensityDisabled}
+            />
+
+            {/* Thanh 3 Tab hành động gọn cho mobile: Preset | AI Màu | Tinh chỉnh */}
+            <div className="mx-4 mb-2 flex rounded-xl bg-zinc-100 p-0.5 text-[12px] font-medium">
+              <button
+                type="button"
+                onClick={() => setColorToolTab('preset')}
+                className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 transition-all ${
+                  colorToolTab === 'preset'
+                    ? 'bg-white font-semibold text-zinc-900 shadow-2xs'
+                    : 'text-zinc-500 hover:text-zinc-800'
+                }`}
+              >
+                <Layers size={13} />
+                <span>Preset</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setColorToolTab('ai')}
+                className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 transition-all ${
+                  colorToolTab === 'ai'
+                    ? 'bg-white font-semibold text-zinc-900 shadow-2xs'
+                    : 'text-zinc-500 hover:text-zinc-800'
+                }`}
+              >
+                <Sparkles size={13} className="text-amber-500" />
+                <span>AI Màu</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setColorToolTab('adjust')}
+                className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 transition-all ${
+                  colorToolTab === 'adjust'
+                    ? 'bg-white font-semibold text-zinc-900 shadow-2xs'
+                    : 'text-zinc-500 hover:text-zinc-800'
+                }`}
+              >
+                <SlidersHorizontal size={13} />
+                <span>Tinh chỉnh</span>
+              </button>
+            </div>
+
+            {/* Nội dung theo từng Tab (không xếp chồng gây scroll dài) */}
+            <div className="max-h-[27dvh] sm:max-h-[32dvh] overflow-y-auto overscroll-contain pb-2">
+              {colorToolTab === 'preset' && (
+                <div className="px-4 pt-1">
+                  <PresetStrip
+                    presets={presets}
+                    builtInIds={BUILTIN_PRESET_IDS}
+                    activePresetId={activePresetId}
+                    params={panel}
+                    onSelect={(p, tone, id) => {
+                      handlePresetSelect(p, tone, id);
+                      pushHistory(id ? applyPresetGuards(p, id) : clampParams(p), true);
+                    }}
+                    onImportPreset={handleImportPreset}
+                    onOpenCloneModal={() => setCloneModalOpen(true)}
+                    onSavePreset={handleSavePreset}
+                    onDeletePreset={handleDeletePreset}
+                    onError={setError}
+                  />
+                </div>
+              )}
+
+              {colorToolTab === 'ai' && (
+                <div className="px-4 pt-1">
+                  <AiSuggestionPanel
+                    onGenerate={handleAiGenerate}
+                    onMatchColor={handleAiMatchColor}
+                    isLoading={isAiLoading}
+                    hasApiKey={hasApiKey}
+                    demoQuota={demoQuota}
+                    onOpenSettings={() => {
+                      setLimitNotice(null);
+                      setSettingsOpen(true);
+                    }}
+                  />
+                </div>
+              )}
+
+              {colorToolTab === 'adjust' && (
+                <AdjustPanel
+                  params={panel}
+                  onParamChange={handleParamChange}
+                  onHslChange={handleHslChange}
+                  onResetAll={handleResetAll}
+                  onExportXmp={() =>
+                    downloadXmpPreset(panel, activePreset?.name || 'studio-mau-preset')
+                  }
+                  resetDisabled={
+                    isLutActive || (activePreset ? paramsEqual(panel, activePreset.params) : false)
+                  }
+                  isLutActive={isLutActive}
+                />
+              )}
+            </div>
+
+            {/* Thanh đáy cố định: Giữ xem gốc & Xuất ảnh */}
+            <BottomActionBar
               onExport={() => setExportModalOpen(true)}
               onHoldOriginal={setShowOriginal}
               exporting={exporting}
               showOriginal={showOriginal}
-              intensityDisabled={isIntensityDisabled}
             />
           </div>
         </>

@@ -5,12 +5,14 @@ interface CanvasStageProps {
   canvasRef: React.RefObject<HTMLCanvasElement>;
   showOriginal: boolean;
   originalUrl?: string | null;
+  onHoldOriginal?: (pressed: boolean) => void;
 }
 
 export default function CanvasStage({
   canvasRef,
   showOriginal,
   originalUrl,
+  onHoldOriginal,
 }: CanvasStageProps) {
   const [compareMode, setCompareMode] = useState(false);
   const [splitPos, setSplitPos] = useState(50);
@@ -31,10 +33,16 @@ export default function CanvasStage({
       <div
         ref={wrapperRef}
         onPointerDown={(e) => {
-          if (!compareMode || showOriginal) return;
-          draggingRef.current = true;
-          e.currentTarget.setPointerCapture(e.pointerId);
-          updatePosition(e.clientX);
+          if (compareMode && !showOriginal) {
+            draggingRef.current = true;
+            e.currentTarget.setPointerCapture(e.pointerId);
+            updatePosition(e.clientX);
+            return;
+          }
+          if (!compareMode && onHoldOriginal) {
+            e.currentTarget.setPointerCapture(e.pointerId);
+            onHoldOriginal(true);
+          }
         }}
         onPointerMove={(e) => {
           if (!draggingRef.current || !compareMode || showOriginal) return;
@@ -42,18 +50,28 @@ export default function CanvasStage({
         }}
         onPointerUp={() => {
           draggingRef.current = false;
+          if (!compareMode && onHoldOriginal) onHoldOriginal(false);
         }}
         onPointerCancel={() => {
           draggingRef.current = false;
+          if (!compareMode && onHoldOriginal) onHoldOriginal(false);
         }}
-        className={`relative flex h-full w-full items-center justify-center overflow-hidden select-none ${
-          compareMode && !showOriginal ? 'touch-none cursor-ew-resize' : ''
+        onContextMenu={(e) => e.preventDefault()}
+        className={`relative flex h-full w-full items-center justify-center overflow-hidden select-none touch-none ${
+          compareMode && !showOriginal ? 'cursor-ew-resize' : 'cursor-pointer'
         }`}
+        title={compareMode ? 'Kéo để so sánh Trước / Sau' : 'Chạm giữ vào ảnh để xem ảnh gốc'}
       >
         <canvas
           ref={canvasRef}
           className="block max-h-full max-w-full rounded-xl object-contain shadow-[0_6px_30px_rgba(0,0,0,0.12)] border border-zinc-300/60"
         />
+
+        {showOriginal && (
+          <span className="pointer-events-none absolute left-2.5 top-2.5 z-10 rounded-full bg-zinc-900/80 px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm backdrop-blur-xs">
+            Ảnh gốc
+          </span>
+        )}
 
         {compareMode && !showOriginal && originalUrl && (
           <>
